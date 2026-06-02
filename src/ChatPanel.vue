@@ -5,8 +5,10 @@ import DOMPurify from 'dompurify'
 import type { AuthContext, MessageBus, Translator } from './main'
 import {
   applyProposal,
+  applyProposalForResult,
   getShellContext,
   proposalFromToolCall,
+  proposalReturnsId,
   rejectProposal,
 } from './shell-bridge'
 import {
@@ -385,17 +387,22 @@ function dismissAskLater(id: string, delay: number) {
   }, delay)
 }
 
-function onAccept(id: string) {
+async function onAccept(id: string) {
   const p = proposals.value[id]
   if (!p) return
   p.status = 'accepted'
   const proposal = proposalFromToolCall(p.toolName, p.args)
+  let result: { id?: number | string; name?: string } | undefined
   if (proposal) {
-    applyProposal(props.messageBus, proposal)
     const kind = (proposal as { kind?: string }).kind
+    if (kind && proposalReturnsId(kind)) {
+      result = await applyProposalForResult(props.messageBus, proposal)
+    } else {
+      applyProposal(props.messageBus, proposal)
+    }
     if (kind) markStepProgress(kind, 'done')
   }
-  resolveProposal(id, 'accepted', { addToolResult: (r) => chat.addToolResult(r) })
+  resolveProposal(id, 'accepted', { addToolResult: (r) => chat.addToolResult(r) }, result)
   dismissProposalLater(id, DISMISS_ACCEPTED_MS)
 }
 

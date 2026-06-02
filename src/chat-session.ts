@@ -133,6 +133,7 @@ export const CLIENT_SIDE_TOOLS = new Set([
   'add_exit_criterion',
   'set_censor_event',
   'add_inclusion_rule',
+  'save_cohort',
   'create_standalone_concept_set',
   'create_feature_analysis',
   'create_characterization',
@@ -398,25 +399,33 @@ export function recordProposal(
 export function resolveProposal(
   toolCallId: string,
   decision: 'accepted' | 'rejected',
-  deps: ProposalResolver
+  deps: ProposalResolver,
+  result?: { id?: number | string; name?: string }
 ): void {
   const p = proposals.value[toolCallId]
   if (!p) return
   const timer = proposalTimers.get(toolCallId)
-  if (timer) {
-    clearTimeout(timer)
-    proposalTimers.delete(toolCallId)
-  }
+  if (timer) { clearTimeout(timer); proposalTimers.delete(toolCallId) }
+  const savedBits =
+    decision === 'accepted' && result && result.id != null
+      ? {
+          savedId: result.id,
+          savedName: result.name,
+          instruction:
+            `Accepted. The artifact was saved with id ${result.id}` +
+            (result.name ? ` ("${result.name}")` : '') +
+            `. Use this id when referencing it in later tools (e.g. create_pathway targetCohorts/eventCohorts, create_characterization cohorts/featureAnalyses). Continue your plan.`,
+        }
+      : {
+          instruction:
+            decision === 'accepted'
+              ? 'The user accepted your proposal. Continue your turn — propose the next step or summarise.'
+              : 'The user rejected your proposal. Ask one clarifying question or propose an alternative; do not re-propose the same thing.',
+        }
   deps.addToolResult({
     tool: p.toolName,
     toolCallId,
-    output: {
-      decision,
-      instruction:
-        decision === 'accepted'
-          ? 'The user accepted your proposal. Continue your turn — propose the next step or summarise.'
-          : 'The user rejected your proposal. Ask one clarifying question or propose an alternative; do not re-propose the same thing.',
-    },
+    output: { decision, ...savedBits },
   })
 }
 
