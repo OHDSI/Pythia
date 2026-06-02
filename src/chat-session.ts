@@ -323,7 +323,7 @@ function attachPersistence(chat: Chat<UIMessage>) {
 }
 
 function resolveMaxAutoSteps(): number {
-  const DEFAULT = 15
+  const DEFAULT = 50
   const parse = (raw: unknown): number | null => {
     if (typeof raw !== 'string' && typeof raw !== 'number') return null
     const n = typeof raw === 'number' ? raw : parseInt(raw, 10)
@@ -462,11 +462,10 @@ export function getChatInstance(): Chat<UIMessage> {
   // Configurable via VITE_PYTHIA_MAX_AUTO_STEPS at build time, with a
   // dev-convenience runtime override at localStorage.pythiaMaxAutoSteps
   // (no rebuild needed — set it in DevTools, refresh).
-  // 15 is the working default for typical "build me a complex cohort"
-  // flows (~2 orientation searches + ~5 concept lookups + ~5 client-side
-  // proposals + ~3 buffer). Bump it when sparse local vocabularies push
-  // the model into long retry chains; tighten it if you observe the
-  // "tool-loop forever" failure mode the cap was added to prevent.
+  // 50 is the default so multi-cohort / pipeline flows (build + save several
+  // cohorts, then a pathway/characterization that references them) complete in
+  // one turn; the env + localStorage overrides still apply. Tighten it if you
+  // observe the "tool-loop forever" failure mode the cap was added to prevent.
   const MAX_AUTO_STEPS = resolveMaxAutoSteps()
   // bao runs ONE Bedrock turn per request and ends with a `finish` chunk
   // carrying a `finishReason` ("tool-calls" | "stop" | "length" | "error").
