@@ -589,7 +589,11 @@ export function proposalFromToolCall(
       return buildNavigateProposal(args as NavigateArgs)
 
     case 'save_cohort':
-      return { kind: 'saveCohort' } as AgentProposal
+      return {
+        kind: 'saveCohort',
+        name: typeof args.name === 'string' ? args.name : undefined,
+        description: typeof args.description === 'string' ? args.description : undefined,
+      } as AgentProposal
 
     case 'create_standalone_concept_set':
       return buildStandaloneConceptSetProposal(args as StandaloneConceptSetArgs)
