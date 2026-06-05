@@ -73,6 +73,7 @@ export interface AgentProposal {
     | 'updateCharacterization'
     | 'updatePathway'
     | 'updateIncidenceRate'
+    | 'saveCohort'
   [key: string]: unknown
 }
 
@@ -92,6 +93,33 @@ export async function getShellContext(bus: MessageBus): Promise<ShellContext> {
 
 export function applyProposal(bus: MessageBus, proposal: AgentProposal): void {
   bus.send('cohort.applyProposal', { proposal })
+}
+
+const ID_RETURNING_KINDS = new Set([
+  'saveCohort',
+  'createStandaloneConceptSet',
+  'createFeatureAnalysis',
+  'createCharacterization',
+  'createPathway',
+  'createIncidenceRate',
+])
+
+export function proposalReturnsId(kind: string): boolean {
+  return ID_RETURNING_KINDS.has(kind)
+}
+
+export async function applyProposalForResult(
+  bus: MessageBus,
+  proposal: AgentProposal
+): Promise<{ id?: number | string; name?: string }> {
+  try {
+    return await bus.request<{ id?: number | string; name?: string }>(
+      'cohort.applyProposal',
+      { proposal }
+    )
+  } catch {
+    return {}
+  }
 }
 
 export function rejectProposal(bus: MessageBus, id: string): void {
@@ -559,6 +587,13 @@ export function proposalFromToolCall(
 
     case 'navigate_to':
       return buildNavigateProposal(args as NavigateArgs)
+
+    case 'save_cohort':
+      return {
+        kind: 'saveCohort',
+        name: typeof args.name === 'string' ? args.name : undefined,
+        description: typeof args.description === 'string' ? args.description : undefined,
+      } as AgentProposal
 
     case 'create_standalone_concept_set':
       return buildStandaloneConceptSetProposal(args as StandaloneConceptSetArgs)

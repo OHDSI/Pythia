@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { proposalFromToolCall } from '../src/shell-bridge'
+import { proposalFromToolCall, proposalReturnsId } from '../src/shell-bridge'
 import { isAgentVisibleView } from '../src/route-manifest'
+
+describe('save_cohort mapping', () => {
+  it('maps save_cohort to a saveCohort proposal', () => {
+    expect(proposalFromToolCall('save_cohort', {} as never)).toEqual({ kind: 'saveCohort' })
+  })
+  it('marks id-returning kinds', () => {
+    expect(proposalReturnsId('saveCohort')).toBe(true)
+    expect(proposalReturnsId('createPathway')).toBe(true)
+    expect(proposalReturnsId('addEntryEvent')).toBe(false)
+  })
+})
 
 describe('proposalFromToolCall', () => {
   it('add_criterion (no group) → addEntryEvent', () => {
