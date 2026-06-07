@@ -180,9 +180,12 @@ services:
       - sh
       - -c
       - |
-        set -e
         echo "[webapi-start] LOAD webapi; SELECT webapi_start();"
-        psql -h trex -p 5432 -U trex -d main -c "LOAD webapi;" -c "SELECT webapi_start();"
+        # Idempotent: webapi_start() errors if WebAPI is already running (e.g. on
+        # a re-run). Tolerate that — the /WebAPI/info probe below is the real
+        # success signal, so a hot stack converges without a manual reset.
+        psql -h trex -p 5432 -U trex -d main -c "LOAD webapi;" -c "SELECT webapi_start();" \
+          || echo "[webapi-start] webapi_start() non-zero (already running?); continuing to probe"
         echo "[webapi-start] waiting for http://trex:8080/WebAPI/info"
         for i in $$(seq 1 60); do
           code=$$(wget -q -O /dev/null -S "http://trex:8080/WebAPI/info" 2>&1 | awk '/HTTP\//{print $$2; exit}')
@@ -192,4 +195,24 @@ services:
         done
         echo "[webapi-start] WebAPI did not come up in time" >&2
         exit 1
+    restart: "no"
+
+  # One-shot: after WebAPI is up (so flyway has created the webapi schema), load
+  # source/source_daimon rows, auth users, and admin/proxy permissions.
+  atlas3-db-init:
+    image: postgres:16-alpine
+    volumes:
+      - ./atlasdb:/scripts:ro
+    environment:
+      PGHOST: atlas3-postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-mypass}
+      PGDATABASE: postgres
+    depends_on:
+      webapi-start:
+        condition: service_completed_successfully
+    entrypoint:
+      - sh
+      - -c
+      - 'for f in /scripts/*.sql; do echo "[db-init] $$f"; psql -v ON_ERROR_STOP=1 -f "$$f"; done'
     restart: "no"
