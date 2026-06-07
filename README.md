@@ -23,10 +23,10 @@ deployment to pull the CI `pythia-plugin-dist` artifact).
 
 `docker-compose.yml` brings up the full Atlas3 stack (Postgres, WebAPI with
 the bao backend, and the frontend) with the Pythia plugin built from this
-repo. It builds the Atlas3 services from the sibling `../Atlas3` checkout,
-so the expected layout is `code/Atlas3` next to `code/trex-dx`.
+repo. The Atlas3 services build from the `third_party/Atlas3` submodule.
 
 ```bash
+git submodule update --init   # fetch third_party/Atlas3
 cp .env.example .env          # fill in AWS_BEARER_TOKEN_BEDROCK
 npm ci && npm run build       # produce ./dist (the plugin bundle)
 docker compose up --build     # build images and start the stack
@@ -41,11 +41,14 @@ changes.
 ## Alternative: trex embedded-WebAPI stack
 
 `docker-compose.atlas3-trex.yml` runs the same Atlas3 + Pythia stack but
-serves OHDSI WebAPI from **trex's embedded WebAPI** (OHDSI WebAPI compiled
-into a DuckDB extension inside the trex image) instead of the standard
-`ohdsi/webapi` Java image. It needs a locally rebuilt arm64 native lib and
-a fix image; see the file header for the full build steps. The two compose
-files are alternatives — use whichever WebAPI backend you want.
+serves OHDSI WebAPI from trex's embedded WebAPI instead of the standard
+`ohdsi/webapi` Java image. The two compose files are alternatives — use
+whichever WebAPI backend you want.
+
+```bash
+cp .env.example .env          # fill in AWS_BEARER_TOKEN_BEDROCK
+docker compose -f docker-compose.atlas3-trex.yml up -d
+```
 
 ## Route manifest
 
