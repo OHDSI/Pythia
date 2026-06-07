@@ -44,9 +44,8 @@ changes.
 serves OHDSI WebAPI from **trex's embedded WebAPI** (OHDSI WebAPI compiled
 into a DuckDB extension inside the trex image) instead of the standard
 `ohdsi/webapi` Java image. It needs a locally rebuilt arm64 native lib and
-a fix image; see the file header and `docs/superpowers/` (spec + plan) for
-the full build steps. The two compose files are alternatives — use whichever
-WebAPI backend you want.
+a fix image; see the file header for the full build steps. The two compose
+files are alternatives — use whichever WebAPI backend you want.
 
 ## Route manifest
 

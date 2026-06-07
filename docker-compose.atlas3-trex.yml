@@ -1,5 +1,4 @@
-# Atlas3 frontend + trex-embedded-WebAPI (single node). See
-# docs/superpowers/plans/2026-06-07-atlas3-trex-webapi-compose.md
+# Atlas3 frontend + trex-embedded-WebAPI (single node).
 #
 # The published trex image cannot boot the embedded WebAPI as-is: its
 # libwebapi-native.so has a GraalVM reflection bug (isDirectory) and its
