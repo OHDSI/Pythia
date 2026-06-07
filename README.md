@@ -38,6 +38,16 @@ it), and your locally built `./dist` is mounted over the plugin baked into
 the image — so rebuilding the plugin and refreshing the page picks up your
 changes.
 
+## Alternative: trex embedded-WebAPI stack
+
+`docker-compose.atlas3-trex.yml` runs the same Atlas3 + Pythia stack but
+serves OHDSI WebAPI from **trex's embedded WebAPI** (OHDSI WebAPI compiled
+into a DuckDB extension inside the trex image) instead of the standard
+`ohdsi/webapi` Java image. It needs a locally rebuilt arm64 native lib and
+a fix image; see the file header and `docs/superpowers/` (spec + plan) for
+the full build steps. The two compose files are alternatives — use whichever
+WebAPI backend you want.
+
 ## Route manifest
 
 `src/routes.manifest.json` is a vendored copy of ATLAS v3.0's generated
