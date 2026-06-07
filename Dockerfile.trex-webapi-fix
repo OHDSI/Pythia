@@ -1,0 +1,18 @@
+# Local test image: published trex + the rebuilt libwebapi-native.so (with the
+# extensions.clj ^File / isDirectory fix) + the arch-correct .trex files overlaid
+# into node_modules/@trex. The published image's node_modules/@trex/*.trex come
+# from the npm packages (amd64), while /usr/lib/trexsql/extensions/*.trex are the
+# CI-built arch-correct ones; the embedded WebAPI engine loads from node_modules,
+# so on arm64 it hits "built for platform linux_amd64". This overlay aligns them.
+FROM ghcr.io/ohdsi/trexsql:latest
+USER root
+COPY native-libs/libwebapi-native.so /usr/lib/libwebapi-native.so
+RUN set -eux; \
+    for src in /usr/lib/trexsql/extensions/*.trex; do \
+      base=$(basename "$src"); \
+      for dest in $(find /usr/src/node_modules/@trex -name "$base"); do \
+        cp "$src" "$dest"; echo "overlaid $dest"; \
+      done; \
+    done; \
+    ldconfig
+USER node
