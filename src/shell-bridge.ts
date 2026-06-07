@@ -2,6 +2,7 @@ import { getViewParams, isAgentVisibleView } from './route-manifest'
 import type { MessageBus } from './main'
 import type {
   ConceptRefArgs,
+  ConceptSetArgs,
   CreateCharacterizationArgs,
   CreateFeatureAnalysisArgs,
   CreateIncidenceRateArgs,
@@ -219,6 +220,8 @@ function buildFeatureAnalysisProposal(args: CreateFeatureAnalysisArgs): AgentPro
   if (!args.name || !args.type) return null
   return {
     kind: 'createFeatureAnalysis',
+    // Open the editor on the new artifact after the host creates it.
+    openAfterCreate: true,
     payload: {
       name: args.name,
       description: args.description,
@@ -456,6 +459,29 @@ function buildUpdateIncidenceRateProposal(args: ProposalArgs): AgentProposal | n
   } as unknown as AgentProposal
 }
 
+function buildConceptSetProposal(args: ConceptSetArgs): AgentProposal | null {
+  // Embeds a concept set into the open cohort; create_standalone_concept_set
+  // saves one as its own artifact instead.
+  if (!args.items?.length) return null
+  const items = args.items
+    .filter(it => typeof it.conceptId === 'number' && typeof it.conceptName === 'string')
+    .map(it => ({
+      conceptId: it.conceptId as number,
+      conceptName: it.conceptName as string,
+      domain: it.domain,
+      includeDescendants: it.includeDescendants ?? true,
+      isExcluded: it.isExcluded ?? false,
+    }))
+  if (items.length === 0) return null
+  return {
+    kind: 'addConceptSet',
+    conceptSet: {
+      name: args.name,
+      items,
+    },
+  } as unknown as AgentProposal
+}
+
 function buildStandaloneConceptSetProposal(args: StandaloneConceptSetArgs): AgentProposal | null {
   if (!args.name || !args.items?.length) return null
   return {
@@ -594,6 +620,9 @@ export function proposalFromToolCall(
         name: typeof args.name === 'string' ? args.name : undefined,
         description: typeof args.description === 'string' ? args.description : undefined,
       } as AgentProposal
+
+    case 'create_concept_set':
+      return buildConceptSetProposal(args as ConceptSetArgs)
 
     case 'create_standalone_concept_set':
       return buildStandaloneConceptSetProposal(args as StandaloneConceptSetArgs)

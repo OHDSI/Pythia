@@ -1,16 +1,11 @@
 # Atlas3 frontend + trex-embedded-WebAPI (single node).
 #
-# The published trex image cannot boot the embedded WebAPI as-is: its
-# libwebapi-native.so has a GraalVM reflection bug (isDirectory) and its
-# node_modules/@trex/*.trex are amd64-only. Build a fixed image first (see
-# README "Rebuilding the WebAPI native lib") and point TREX_IMAGE at it:
-#
-#   # 1. build the fixed native lib (from ../trex) -> ./native-libs/
-#   # 2. docker build -f Dockerfile.trex-webapi-fix -t trexsql-webapi-fix:local .
 #   cp .env.example .env   # then edit AWS_BEARER_TOKEN_BEDROCK
-#   TREX_IMAGE=trexsql-webapi-fix:local \
-#     docker compose -f docker-compose.atlas3-trex.yml up -d
+#   docker compose -f docker-compose.atlas3-trex.yml up -d
 # UI:   https://localhost/atlas/
+#
+# trex image pinned by digest; bump via:
+#   docker buildx imagetools inspect ghcr.io/ohdsi/trexsql:latest
 name: atlas3-trex
 
 # Single trex node: data_node (Local DuckDB pool) + trexas (UI/API) + pgwire.
@@ -37,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql:latest}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:bdeea44d964b2eddf9346aacfc8090311a9cba1b2f1be5a59742445c9bd5cf64}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -78,7 +73,7 @@ services:
 
   # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql:latest}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:bdeea44d964b2eddf9346aacfc8090311a9cba1b2f1be5a59742445c9bd5cf64}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -219,12 +214,12 @@ services:
       - 'for f in /scripts/*.sql; do echo "[db-init] $$f"; psql -v ON_ERROR_STOP=1 -f "$$f"; done'
     restart: "no"
 
-  # Atlas3 Caddy/Vite UI, built locally from ../Atlas3 so VITE_BAO_AGENT_ENABLED
+  # Atlas3 Caddy/Vite UI, built from third_party/Atlas3 so VITE_BAO_AGENT_ENABLED
   # is baked in (the pythia FAB is build-time gated). The vendored ./Caddyfile is
   # mounted over the image's copy; WEBAPI_HOST=trex points /WebAPI/* at the node.
   atlas3-frontend:
     build:
-      context: ../Atlas3
+      context: ./third_party/Atlas3
       dockerfile: Dockerfile
       args:
         VITE_AUTH_ENABLED: "true"
