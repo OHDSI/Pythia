@@ -238,6 +238,11 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - atlas3-caddy-data:/data
+      # Pythia micro-frontend (built from this repo's `develop` branch) + the
+      # single-spa-vue runtime, served at /atlas/pythia-plugin and /atlas/vendor.
+      # Neither ships in the Atlas3 OSS build; see README "Building the Pythia plugin".
+      - ./frontend-assets/pythia-plugin:/srv/atlas/plugins/pythia-plugin:ro
+      - ./frontend-assets/vendor/single-spa-vue.js:/srv/atlas/vendor/single-spa-vue.js:ro
     environment:
       WEBAPI_HOST: trex
       WEBAPI_PORT: "8080"
