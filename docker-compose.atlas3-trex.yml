@@ -180,12 +180,15 @@ services:
       - sh
       - -c
       - |
+        # Probe-first idempotency: if WebAPI is already serving, do NOT call
+        # webapi_start() again — re-invoking it on a live instance destabilizes
+        # the embedded server. This lets the one-shot re-run safely on a hot
+        # stack (e.g. when `up` restarts it as a dependency of the frontend).
+        if wget -q -O /dev/null "http://trex:8080/WebAPI/info"; then
+          echo "[webapi-start] WebAPI already up; nothing to do"; exit 0
+        fi
         echo "[webapi-start] LOAD webapi; SELECT webapi_start();"
-        # Idempotent: webapi_start() errors if WebAPI is already running (e.g. on
-        # a re-run). Tolerate that — the /WebAPI/info probe below is the real
-        # success signal, so a hot stack converges without a manual reset.
-        psql -h trex -p 5432 -U trex -d main -c "LOAD webapi;" -c "SELECT webapi_start();" \
-          || echo "[webapi-start] webapi_start() non-zero (already running?); continuing to probe"
+        psql -h trex -p 5432 -U trex -d main -c "LOAD webapi;" -c "SELECT webapi_start();"
         echo "[webapi-start] waiting for http://trex:8080/WebAPI/info"
         for i in $$(seq 1 60); do
           code=$$(wget -q -O /dev/null -S "http://trex:8080/WebAPI/info" 2>&1 | awk '/HTTP\//{print $$2; exit}')
@@ -216,3 +219,31 @@ services:
       - -c
       - 'for f in /scripts/*.sql; do echo "[db-init] $$f"; psql -v ON_ERROR_STOP=1 -f "$$f"; done'
     restart: "no"
+
+  # Atlas3 Caddy/Vite UI, built locally from ../Atlas3 so VITE_BAO_AGENT_ENABLED
+  # is baked in (the pythia FAB is build-time gated). The vendored ./Caddyfile is
+  # mounted over the image's copy; WEBAPI_HOST=trex points /WebAPI/* at the node.
+  atlas3-frontend:
+    build:
+      context: ../Atlas3
+      dockerfile: Dockerfile
+      args:
+        VITE_AUTH_ENABLED: "true"
+        VITE_AUTH_SKIP_LOGIN: "false"
+        VITE_AUTH_PROVIDERS: '[{"name":"Database","url":"user/login/db","ajax":true,"icon":"mdi-database","isUseCredentialsForm":true}]'
+        VITE_BAO_AGENT_ENABLED: ${VITE_BAO_AGENT_ENABLED:-true}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - atlas3-caddy-data:/data
+    environment:
+      WEBAPI_HOST: trex
+      WEBAPI_PORT: "8080"
+      WEBAPI_URL: ${WEBAPI_URL:-https://localhost/WebAPI}
+      CADDY_HOSTNAME: ${CADDY_HOSTNAME:-localhost}
+      CADDY_TLS_DIRECTIVE: ${CADDY_TLS_DIRECTIVE:-tls internal}
+    depends_on:
+      atlas3-db-init:
+        condition: service_completed_successfully
