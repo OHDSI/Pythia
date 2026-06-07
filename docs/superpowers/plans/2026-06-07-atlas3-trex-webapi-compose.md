@@ -288,8 +288,12 @@ services:
       SECURITY_AUTH_DB_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-mypass}
       SECURITY_AUTH_DB_DATASOURCE_SCHEMA: webapi
       TREXSQL_ENABLED: "true"
-      TREXSQL_CACHE_PATH: /data/cache
-      HOME: /data
+      # WebAPI/TrexSQL query cache — must be writable by the `node` user.
+      # Do NOT set HOME=/data: the trex node's Deno runtime caches modules under
+      # $HOME/.cache, and an unwritable HOME breaks the trexas worker so the node
+      # never boots. (Atlas3's standalone webapi used HOME=/data + a /data volume;
+      # the embedded webapi shares the node's HOME, so we leave HOME alone.)
+      TREXSQL_CACHE_PATH: /tmp/trexsql-cache
       # --- Pythia / bao agent ---
       AWS_REGION: us-east-1
       BAO_AGENT_MODEL: ${BAO_AGENT_MODEL:-minimax.minimax-m2.5}
