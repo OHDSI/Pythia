@@ -8,3 +8,5 @@ coverage/
 /secrets/
 # Local secrets (Bedrock token, passwords).
 .env
+# Locally rebuilt WebAPI native lib (large arch-specific binary; built from ../trex).
+/native-libs/

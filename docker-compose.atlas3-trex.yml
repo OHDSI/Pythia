@@ -1,8 +1,16 @@
 # Atlas3 frontend + trex-embedded-WebAPI (single node). See
 # docs/superpowers/plans/2026-06-07-atlas3-trex-webapi-compose.md
 #
-# Run:  cp .env.example .env  &&  edit AWS_BEARER_TOKEN_BEDROCK
-#       docker compose -f docker-compose.atlas3-trex.yml up -d
+# The published trex image cannot boot the embedded WebAPI as-is: its
+# libwebapi-native.so has a GraalVM reflection bug (isDirectory) and its
+# node_modules/@trex/*.trex are amd64-only. Build a fixed image first (see
+# README "Rebuilding the WebAPI native lib") and point TREX_IMAGE at it:
+#
+#   # 1. build the fixed native lib (from ../trex) -> ./native-libs/
+#   # 2. docker build -f Dockerfile.trex-webapi-fix -t trexsql-webapi-fix:local .
+#   cp .env.example .env   # then edit AWS_BEARER_TOKEN_BEDROCK
+#   TREX_IMAGE=trexsql-webapi-fix:local \
+#     docker compose -f docker-compose.atlas3-trex.yml up -d
 # UI:   https://localhost/atlas/
 name: atlas3-trex
 
@@ -30,7 +38,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ghcr.io/ohdsi/trexsql:latest
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql:latest}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -69,9 +77,9 @@ services:
       timeout: 5s
       retries: 10
 
-  # Single trex node. Hosts the embedded WebAPI (booted in a later task) on :8080.
+  # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
   trex:
-    image: ghcr.io/ohdsi/trexsql:latest
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql:latest}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -158,3 +166,30 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
+
+  # One-shot: boots the embedded WebAPI by loading the extension and calling
+  # webapi_start() over trex's pgwire port. Completes once /WebAPI/info is 200.
+  webapi-start:
+    image: postgres:16-alpine
+    depends_on:
+      trex:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-mypass}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "[webapi-start] LOAD webapi; SELECT webapi_start();"
+        psql -h trex -p 5432 -U trex -d main -c "LOAD webapi;" -c "SELECT webapi_start();"
+        echo "[webapi-start] waiting for http://trex:8080/WebAPI/info"
+        for i in $$(seq 1 60); do
+          code=$$(wget -q -O /dev/null -S "http://trex:8080/WebAPI/info" 2>&1 | awk '/HTTP\//{print $$2; exit}')
+          echo "  attempt $$i: $$code"
+          [ "$$code" = "200" ] && { echo "[webapi-start] WebAPI is up"; exit 0; }
+          sleep 5
+        done
+        echo "[webapi-start] WebAPI did not come up in time" >&2
+        exit 1
+    restart: "no"
