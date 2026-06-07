@@ -10,3 +10,8 @@ coverage/
 .env
 # Locally rebuilt WebAPI native lib (large arch-specific binary; built from ../trex).
 /native-libs/
+/frontend-assets/
+# Local agent / browser-automation artifacts.
+/.claude/
+/.playwright-mcp/
+/atlas-*.png
