@@ -128,6 +128,73 @@ image is required to host it (the lib only loses the agent in a later trexsql re
 ## Out of scope
 
 - The devx coding/dev agent (separate, already TS/Deno).
-- Any change to bao functionality other than removing the agent layer.
+- Any change to bao functionality other than removing the agent layer and adding the thin
+  auth-forwarding proxy route (see Phase 0 outcomes — auth).
 - Publishing a new trexsql image (the native-lib agent removal lands in a later trexsql
-  release; until then the mounted function simply shadows the in-lib agent via routing).
+  release).
+
+---
+
+## Phase 0 spike outcomes & locked decisions (2026-06-11)
+
+All four spikes are committed under `docs/superpowers/spikes/`. These outcomes are
+authoritative and **supersede earlier assumptions where they differ** (notably: the
+cutover does NOT reroute at Caddy — it forwards from bao on :8080).
+
+**Hosting (spike 0.1).** The agent is a trex plugin **`@trexsql/agent`** (source `/agent`):
+a directory with `package.json` (a `trex.functions.api[]` entry) + `functions/index.ts`
+using `Deno.serve` that imports the shadow-cljs ESM `handler`. Mounted into the node at
+`/usr/src/plugins-dev/...`; the node serves it on **`:8001` at `/plugins/trexsql/agent`**,
+receiving a Web `Request` and returning a Web `Response` (SSE pass-through confirmed, so
+the SDK `Response` returns directly). Plugin/source changes require
+`docker compose restart trex` (no hot-reload).
+
+**Build/interop (spike 0.3).** shadow-cljs **`:target :esm`** with
+`:js-options {:js-provider :import :keep-as-import #{"ai" "@ai-sdk/amazon-bedrock"}}`
+(keeps npm deps external for Deno to resolve; inlining them crashes). Pin
+**`@ai-sdk/amazon-bedrock@^4.0.115`** (3.x/4.0.81 have a zod tool-input bug). Interop
+rules: read JS props with `unchecked-get`/string keys (avoid `:advanced` renames),
+`await convertToModelMessages`, and `shadow-cljs.edn` declares its own `:dependencies`
+(no `clojure` CLI on the box). The Deno import map (`deno.json`) needs **bare-name**
+entries `"ai"` / `"@ai-sdk/amazon-bedrock"` → their `npm:` specifiers.
+
+**Bedrock (spike 0.3).** `createAmazonBedrock(#js {:apiKey <AWS_BEARER_TOKEN_BEDROCK>
+:region "us-east-1"})` authenticates with the **bearer token natively** — no custom-fetch
+workaround. `streamText` + `tool()` + `toUIMessageStreamResponse()` emit exactly the
+frontend's frames (`start`, `text-delta`, `tool-input-available`, `tool-output-available`,
+`finish`). Use `stopWhen: stepCountIs(20)` for the multi-step tool loop.
+
+**validate_circe (spike 0.2).** Fully in-process — no WebAPI. Get a connection via
+`globalThis.Trex.databaseManager().getConnection("memory","main","main","main",{}).connection`,
+run `SELECT circe_sql_render_translate(circe_json_to_sql(<base64(exprJson)>, <optsJson>),
+'duckdb', '{}')` (validation: `circe_check_cohort(<base64>)`), **always `conn.close()`**
+(64-slot pool), and detect inline `/* circe error ... */` in the result string.
+
+**Auth — LOCKED: Design A, forward-from-bao (spike 0.4).** The stack has **no
+`client_credentials` grant and no public/anon escape hatch**; the canonical service
+credential is a static **`service_role`** key (HS256 JWT `{role:"service_role"}` stored in
+the node DB `trexdb.setting` → `auth.serviceRoleKey`), accepted by `pluginAuthz` **only via
+the `apikey` header**. Therefore:
+
+- The path **stays `/WebAPI/trexsql/agent/*` on `:8080`** and **Caddy is unchanged**.
+- OHDSI WebAPI's existing Spring Security **validates the user's JWT** (real auth the agent
+  never had — a security upgrade).
+- A thin **bao Reitit `/agent/*` route**, reusing the existing native-safe `proxy.clj`
+  reverse-proxy, forwards to **`:8001/plugins/trexsql/agent`** attaching
+  `apikey: <service_role>` (read from the node DB) and **relaying the user
+  `Authorization: Bearer`** so the agent's tools keep their user-scoped WebAPI access.
+
+Revised data flow:
+
+```
+Pythia frontend (Bearer = WebAPI JWT)
+  → Caddy /WebAPI/* (unchanged proxy) → :8080 OHDSI WebAPI (validates JWT)
+    → bao /agent/* proxy route (proxy.clj): add apikey:<service_role>, relay user Bearer
+      → :8001 /plugins/trexsql/agent  (the CLJS function: SDK stream + tools)
+          ├ tools → fetch :8080/WebAPI (relayed user Bearer)
+          └ validate_circe → globalThis.Trex (in-process)
+```
+
+Consequence for decommission: bao keeps the thin `/agent/*` proxy route (infra, not agent
+logic) plus `proxy.clj` + the clj-http native config; only `trexsql.agent.*` (the agent
+logic) is deleted.

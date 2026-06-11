@@ -14,6 +14,29 @@
 
 Source of truth: `docs/superpowers/specs/2026-06-11-pythia-agent-clojurescript-extraction-design.md`. Read it before starting.
 
+## Locked decisions (Phase 0 spikes — READ FIRST; supersede conflicting task text below)
+
+Phase 0 (Tasks 0.1–0.4) is COMPLETE; findings are committed under `docs/superpowers/spikes/`
+and summarized authoritatively in the spec's "Phase 0 spike outcomes & locked decisions"
+section. Where any task below conflicts with these, follow the spec:
+
+- **Hosting:** mount as a trex plugin **`@trexsql/agent`** (dir = `package.json` with a
+  `trex.functions.api` entry + `functions/index.ts` `Deno.serve` importing the shadow-cljs
+  ESM `handler`), served on `:8001` at `/plugins/trexsql/agent`. Restart `trex` to reload.
+- **Build:** shadow-cljs `:target :esm` + `:js-options {:js-provider :import :keep-as-import
+  #{"ai" "@ai-sdk/amazon-bedrock"}}`; pin `@ai-sdk/amazon-bedrock@^4.0.115`; `unchecked-get`
+  string-key interop; `await convertToModelMessages`; deno.json bare-name import map.
+- **Bedrock:** `createAmazonBedrock(#js{:apiKey <bearer> :region "us-east-1"})` — native
+  bearer auth; `stopWhen (stepCountIs 20)`.
+- **validate_circe:** in-process `globalThis.Trex` circe SQL fns (base64 input,
+  `conn.close()`, detect `/* circe error */`).
+- **Auth (LOCKED — Design A, forward-from-bao):** path stays `/WebAPI/trexsql/agent/*` on
+  `:8080`; **Caddy is unchanged** (so Task 1.2's Caddy-reroute step is REPLACED). A thin bao
+  Reitit `/agent/*` route (reusing `proxy.clj`) forwards to `:8001/plugins/trexsql/agent`
+  with `apikey:<service_role>` (from node DB `trexdb.setting`→`auth.serviceRoleKey`) and
+  relays the user `Authorization: Bearer`. This bao route is added in Phase 1 and replaces
+  the native agent routes in Phase 5 (the agent *logic* still leaves bao; the proxy stays).
+
 ## File Structure
 
 Created in **trex-dx**:
