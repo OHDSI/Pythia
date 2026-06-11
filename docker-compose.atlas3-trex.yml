@@ -32,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:bdeea44d964b2eddf9346aacfc8090311a9cba1b2f1be5a59742445c9bd5cf64}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:6c3ec02c884766fd52b27c34b3dcd1a12cd385efa74edbfba03d620018794733}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -73,7 +73,7 @@ services:
 
   # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:bdeea44d964b2eddf9346aacfc8090311a9cba1b2f1be5a59742445c9bd5cf64}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:6c3ec02c884766fd52b27c34b3dcd1a12cd385efa74edbfba03d620018794733}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -96,6 +96,9 @@ services:
     volumes:
       - trex-claude-config:/home/node/.claude
       - trex-gh-config:/home/node/.config/gh
+      # Pythia agent (ClojureScript) as a mounted Deno function.
+      # Served at /plugins/trexsql/agent/* on :8001. See agent/README.md.
+      - ./agent/plugin:/usr/src/plugins-dev/pythia-agent:ro
     environment:
       <<: *swarm-config
       SWARM_NODE: trex
@@ -181,8 +184,11 @@ services:
         if wget -q -O /dev/null "http://trex:8080/WebAPI/info"; then
           echo "[webapi-start] WebAPI already up; nothing to do"; exit 0
         fi
-        echo "[webapi-start] LOAD webapi; SELECT webapi_start();"
-        psql -h trex -p 5432 -U trex -d main -c "LOAD webapi;" -c "SELECT webapi_start();"
+        # Load by full path: the bundled extension lives at /usr/lib/trexsql/
+        # extensions/webapi.trex. A bare `LOAD webapi` resolves to ~/.duckdb/
+        # extensions/<ver>/<arch>/webapi.duckdb_extension, which isn't there.
+        echo "[webapi-start] LOAD webapi.trex; SELECT webapi_start();"
+        psql -h trex -p 5432 -U trex -d main -c "LOAD '/usr/lib/trexsql/extensions/webapi.trex';" -c "SELECT webapi_start();"
         echo "[webapi-start] waiting for http://trex:8080/WebAPI/info"
         for i in $$(seq 1 60); do
           code=$$(wget -q -O /dev/null -S "http://trex:8080/WebAPI/info" 2>&1 | awk '/HTTP\//{print $$2; exit}')
