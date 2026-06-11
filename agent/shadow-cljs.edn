@@ -1,10 +1,14 @@
-{:source-paths ["src"]
+{:source-paths ["src" "test"]
  :dependencies [[org.clojure/clojurescript "1.11.132"]]
  :builds
  {:fn
   {:target :esm
    :output-dir "out"
-   :modules {:handler {:exports {handler pythia.spike/handler}}}
+   :modules {:handler {:exports {handler pythia.entry/handler}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"ai" "@ai-sdk/amazon-bedrock"}}
-   :compiler-options {:infer-externs :auto}}}}
+   :compiler-options {:infer-externs :auto}}
+  :test
+  {:target :node-test
+   :output-to "out/test.cjs"
+   :ns-regexp "-test$"}}}
