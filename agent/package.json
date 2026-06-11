@@ -3,6 +3,12 @@
   "version": "0.0.1",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "shadow-cljs compile test && node out/test.cjs",
+    "build": "shadow-cljs release fn",
+    "sync": "cp out/handler.js plugin/functions/handler.js",
+    "dist": "npm run build && npm run sync"
+  },
   "devDependencies": {
     "shadow-cljs": "^2.28.0"
   },
