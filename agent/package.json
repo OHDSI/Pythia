@@ -6,7 +6,7 @@
   "scripts": {
     "test": "shadow-cljs compile test && node out/test.cjs",
     "build": "shadow-cljs release fn",
-    "sync": "cp out/handler.js plugin/functions/handler.js",
+    "sync": "cp out/handler.js plugin/functions/handler.js && rm -rf plugin/functions/resources && cp -R resources plugin/functions/resources",
     "dist": "npm run build && npm run sync"
   },
   "devDependencies": {

@@ -5,6 +5,12 @@
 // handler.js is the release build of agent/src/pythia/entry.cljs, copied here by
 // `npm run sync` (see agent/README.md). Its bare "ai" / "@ai-sdk/amazon-bedrock"
 // imports resolve via ./deno.json.
+// Stash this module's URL (its dir holds handler.js and ./resources/) so the
+// compiled handler can resolve bundled resource files regardless of the worker
+// CWD. Set BEFORE importing handler.js so it is present at module load. Kept
+// out of the Closure-compiled handler because `import.meta` breaks :advanced.
+(globalThis as Record<string, unknown>).__pythiaModuleUrl = import.meta.url;
+
 import { handler } from "./handler.js";
 
 Deno.serve((req: Request): Response | Promise<Response> => {

@@ -17,7 +17,8 @@
             [pythia.tools.web-search :as web-search]
             [pythia.tools.search-phenotypes :as search-phenotypes]
             [pythia.tools.get-reference-phenotype :as get-reference-phenotype]
-            [pythia.tools.validate-circe :as validate-circe]))
+            [pythia.tools.validate-circe :as validate-circe]
+            [pythia.tools.search-ohdsi-book :as search-ohdsi-book]))
 
 (def all
   [search-concepts/tool
@@ -37,4 +38,5 @@
    web-search/tool
    search-phenotypes/tool
    get-reference-phenotype/tool
-   validate-circe/tool])
+   validate-circe/tool
+   search-ohdsi-book/tool])
