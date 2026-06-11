@@ -76,8 +76,10 @@
    base64-encoded."
   [s]
   (let [bytes (.encode (js/TextEncoder.) s)
-        binary (->> bytes (map (fn [b] (js/String.fromCharCode b))) (apply str))]
-    (js/btoa binary)))
+        sb (js/Array.)]
+    (dotimes [i (.-length bytes)]
+      (.push sb (js/String.fromCharCode (aget bytes i))))
+    (js/btoa (.join sb ""))))
 
 (defn sql-escape
   "Escape single quotes for a SQL string literal."

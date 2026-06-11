@@ -44,6 +44,13 @@
   (is (false? (vc/circe-error? "CREATE TEMP TABLE Codesets ...")))
   (is (false? (vc/circe-error? nil))))
 
+(deftest first-cell-extracts-result-value
+  ;; aliased scalar select keys by the alias, not column0
+  (is (= "SQL" (trex/first-cell #js [#js {:sql "SQL"}])))
+  ;; devx table-fn convention
+  (is (= "X" (trex/first-cell #js [#js {:column0 "X"}])))
+  (is (= "" (trex/first-cell #js []))))
+
 (deftest b64-encode-roundtrips
   (is (= "{\"a\":1}" (js/atob (vc/b64-encode "{\"a\":1}"))))
   ;; UTF-8 safe

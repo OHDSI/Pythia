@@ -19,14 +19,29 @@
         ^js wrapper (.getConnection dbm "memory" "main" "main" "main" #js {})]
     (unchecked-get wrapper "connection")))
 
+(defn first-cell
+  "Extract the first column value from the first row of an `execute` result.
+   Tolerant of the DuckDB result shape: tries `column0` (devx table-fn
+   convention), then the first own-property value of the row object/array.
+   Returns \"\" when there is nothing."
+  [rows]
+  (let [row (some-> rows (aget 0))]
+    (cond
+      (nil? row) ""
+      (some? (unchecked-get row "column0")) (unchecked-get row "column0")
+      (array? row) (or (aget row 0) "")
+      :else (let [ks (js/Object.keys row)]
+              (if (pos? (.-length ks))
+                (or (unchecked-get row (aget ks 0)) "")
+                "")))))
+
 (defn query
   "Run `sql` against the in-memory DuckDB instance and resolve the first row's
-   first column (`column0`, the devx convention). Leases one pool session and
-   ALWAYS closes it. Returns a Promise of the string result (or \"\")."
+   first column value. Leases one pool session and ALWAYS closes it. Returns a
+   Promise of the string result (or \"\")."
   [sql]
   (let [^js conn (db-conn)]
-    (-> (js/Promise.resolve (.execute conn sql))
-        (.then (fn [rows]
-                 (or (some-> rows (aget 0) (unchecked-get "column0")) "")))
+    (-> (js/Promise.resolve (.execute conn sql #js []))
+        (.then (fn [rows] (first-cell rows)))
         (.finally (fn []
                     (try (.close conn) (catch :default _ nil)))))))
