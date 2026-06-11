@@ -14,7 +14,9 @@
             [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
             [pythia.tools.draft-concept-set-spec :as draft-concept-set-spec]
             [pythia.tools.search-ohdsi-studies :as search-ohdsi-studies]
-            [pythia.tools.web-search :as web-search]))
+            [pythia.tools.web-search :as web-search]
+            [pythia.tools.search-phenotypes :as search-phenotypes]
+            [pythia.tools.get-reference-phenotype :as get-reference-phenotype]))
 
 (def all
   [search-concepts/tool
@@ -31,4 +33,6 @@
    get-cohort-overlap/tool
    draft-concept-set-spec/tool
    search-ohdsi-studies/tool
-   web-search/tool])
+   web-search/tool
+   search-phenotypes/tool
+   get-reference-phenotype/tool])
