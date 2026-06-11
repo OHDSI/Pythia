@@ -11,7 +11,10 @@
             [pythia.tools.get-artifact :as get-artifact]
             [pythia.tools.get-cohort-generation-summary :as get-cohort-generation-summary]
             [pythia.tools.summarise-attrition :as summarise-attrition]
-            [pythia.tools.get-cohort-overlap :as get-cohort-overlap]))
+            [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
+            [pythia.tools.draft-concept-set-spec :as draft-concept-set-spec]
+            [pythia.tools.search-ohdsi-studies :as search-ohdsi-studies]
+            [pythia.tools.web-search :as web-search]))
 
 (def all
   [search-concepts/tool
@@ -25,4 +28,7 @@
    get-artifact/tool
    get-cohort-generation-summary/tool
    summarise-attrition/tool
-   get-cohort-overlap/tool])
+   get-cohort-overlap/tool
+   draft-concept-set-spec/tool
+   search-ohdsi-studies/tool
+   web-search/tool])
