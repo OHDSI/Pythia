@@ -15,3 +15,4 @@ coverage/
 /.claude/
 /.playwright-mcp/
 /atlas-*.png
+libwebapi-native.so
