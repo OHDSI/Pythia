@@ -1,0 +1,10 @@
+{:source-paths ["src"]
+ :dependencies [[org.clojure/clojurescript "1.11.132"]]
+ :builds
+ {:fn
+  {:target :esm
+   :output-dir "out"
+   :modules {:handler {:exports {handler pythia.spike/handler}}}
+   :js-options {:js-provider :import
+                :keep-as-import #{"ai" "@ai-sdk/amazon-bedrock"}}
+   :compiler-options {:infer-externs :auto}}}}

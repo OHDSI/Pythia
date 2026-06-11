@@ -1,0 +1,13 @@
+{
+  "name": "pythia-agent",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "shadow-cljs": "^2.28.0"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.115",
+    "ai": "^6"
+  }
+}
