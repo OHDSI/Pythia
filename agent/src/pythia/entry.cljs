@@ -3,7 +3,9 @@
    delegates to. Reads `messages` + `context` from the request JSON, assembles
    the system prompt, streams a tool-less reply. 500 on error."
   (:require [pythia.prompt :as prompt]
-            [pythia.sdk :as sdk]))
+            [pythia.sdk :as sdk]
+            [pythia.tools :as tools]
+            [pythia.tools.registry :as registry]))
 
 (defn- ->context
   "Pull {:route :artifact} out of the request body's `context` object using
@@ -18,6 +20,18 @@
                       :id (unchecked-get artifact "id")
                       :name (unchecked-get artifact "name")})}))))
 
+(defn- header
+  "Case-insensitively read a request header value (Web Headers lowercase keys)."
+  [^js request k]
+  (.. request -headers (get k)))
+
+(defn- ->tool-ctx
+  "Per-request tool context: forward the end user's bearer and resolve the
+   vocabulary source key (request body `sourceKey`, else EUNOMIA demo source)."
+  [^js request body]
+  {:auth (header request "authorization")
+   :source-key (or (unchecked-get body "sourceKey") "EUNOMIA")})
+
 (defn- error-response [e]
   (js/Response. (js/JSON.stringify #js {:error (str (or (.-message e) e))})
                 #js {:status 500
@@ -27,6 +41,8 @@
   (-> (.json request)
       (.then (fn [body]
                (let [messages (unchecked-get body "messages")
-                     system (prompt/system-prompt (->context body))]
-                 (sdk/stream-chat messages system))))
+                     system (prompt/system-prompt (->context body))
+                     ctx (->tool-ctx request body)
+                     tool-obj (registry/tools-object tools/all ctx)]
+                 (sdk/stream-chat messages system tool-obj))))
       (.catch error-response)))

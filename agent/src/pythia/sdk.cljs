@@ -14,10 +14,11 @@
                             :apiKey (config/bearer-token)}))
 
 (defn stream-chat
-  "Stream a tool-less chat reply. ui-messages is the raw UIMessage array from
-   the request; system is the assembled system prompt string. Returns a Promise
-   of a Web Response (text/event-stream) via toUIMessageStreamResponse."
-  [ui-messages system]
+  "Stream a chat reply, running the SDK tool loop. ui-messages is the raw
+   UIMessage array; system is the assembled system prompt; tools is the JS
+   object of SDK tools (name -> tool). Returns a Promise of a Web Response
+   (text/event-stream) via toUIMessageStreamResponse."
+  [ui-messages system tools]
   (-> (js/Promise.resolve (convertToModelMessages ui-messages))
       (.then (fn [model-messages]
                (let [model ((bedrock) (config/model-id))
@@ -25,6 +26,6 @@
                              #js {:model model
                                   :system system
                                   :messages model-messages
-                                  :tools #js {}
+                                  :tools tools
                                   :stopWhen (stepCountIs 20)})]
                  (.toUIMessageStreamResponse result))))))
