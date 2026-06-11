@@ -34,3 +34,25 @@
                        (.then (fn [j] (js->clj j :keywordize-keys true))))
                    nil)))
         (.catch (fn [_] nil)))))
+
+(defn request-status
+  "Like `request` but resolves {:status <int> :body <keywordized JSON|nil>} so
+   callers (e.g. get_artifact) can distinguish 404 from other failures. Body is
+   parsed as JSON when possible, nil otherwise. Resolves {:status 0 :body nil}
+   on a network error."
+  [method path {:keys [body auth query]}]
+  (let [qs (query-string query)
+        url (str (config/webapi-url) path (when qs (str "?" qs)))
+        headers (cond-> {"Accept" "application/json"}
+                  body (assoc "Content-Type" "application/json")
+                  auth (assoc "Authorization" auth))
+        opts (cond-> {:method method
+                      :headers (clj->js headers)}
+               body (assoc :body (js/JSON.stringify (clj->js body))))]
+    (-> (js/fetch url (clj->js opts))
+        (.then (fn [resp]
+                 (let [status (unchecked-get resp "status")]
+                   (-> (.json resp)
+                       (.then (fn [j] {:status status :body (js->clj j :keywordize-keys true)}))
+                       (.catch (fn [_] {:status status :body nil}))))))
+        (.catch (fn [_] {:status 0 :body nil})))))

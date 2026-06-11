@@ -6,7 +6,12 @@
             [pythia.tools.search-characterizations :as search-characterizations]
             [pythia.tools.search-feature-analyses :as search-feature-analyses]
             [pythia.tools.search-incidence-rates :as search-incidence-rates]
-            [pythia.tools.search-pathways :as search-pathways]))
+            [pythia.tools.search-pathways :as search-pathways]
+            [pythia.tools.verify-concept-mapping :as verify-concept-mapping]
+            [pythia.tools.get-artifact :as get-artifact]
+            [pythia.tools.get-cohort-generation-summary :as get-cohort-generation-summary]
+            [pythia.tools.summarise-attrition :as summarise-attrition]
+            [pythia.tools.get-cohort-overlap :as get-cohort-overlap]))
 
 (def all
   [search-concepts/tool
@@ -15,4 +20,9 @@
    search-characterizations/tool
    search-feature-analyses/tool
    search-incidence-rates/tool
-   search-pathways/tool])
+   search-pathways/tool
+   verify-concept-mapping/tool
+   get-artifact/tool
+   get-cohort-generation-summary/tool
+   summarise-attrition/tool
+   get-cohort-overlap/tool])
