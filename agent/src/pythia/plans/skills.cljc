@@ -33,7 +33,7 @@
    "create-concept-set"
    {:label "Create the concept set"
     :tools ["create_standalone_concept_set"]
-    :proposal-kind "createStandaloneConceptSet" :route "concept-set-edit"
+    :proposal-kind "createStandaloneConceptSet" :route "concepts"
     :success "a server-persisted concept set exists"}
 
    "set-entry-event"
