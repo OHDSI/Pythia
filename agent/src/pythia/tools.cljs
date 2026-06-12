@@ -19,6 +19,7 @@
             [pythia.tools.get-reference-phenotype :as get-reference-phenotype]
             [pythia.tools.validate-circe :as validate-circe]
             [pythia.tools.search-ohdsi-book :as search-ohdsi-book]
+            [pythia.tools.select-plan-template :as select-plan-template]
             [pythia.tools.client :as client]))
 
 (def server
@@ -41,7 +42,8 @@
    search-phenotypes/tool
    get-reference-phenotype/tool
    validate-circe/tool
-   search-ohdsi-book/tool])
+   search-ohdsi-book/tool
+   select-plan-template/tool])
 
 (def all
   "Every tool exposed to Bedrock: server tools (with :run) + client-side
