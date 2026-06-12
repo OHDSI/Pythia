@@ -149,6 +149,14 @@ well-known standard OMOP concept IDs:
 
 Note in your response when using IDs not found locally.
 
+## Cohort persistence — save before analysis
+
+After the user accepts the cohort's entry event and criteria, call `save_cohort`
+to persist it — it returns the cohort id. You MUST save a new cohort before
+referencing it in `create_incidence_rate`, `create_pathway`, or
+`create_characterization`; those tools only accept SAVED cohort ids (from
+`search_existing_cohorts`).
+
 ## Rules
 
 1. ALWAYS call search_existing_cohorts first; reuse strong matches.

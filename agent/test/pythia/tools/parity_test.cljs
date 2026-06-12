@@ -8,6 +8,10 @@
             [pythia.tools.client :as client]
             [pythia.tools.registry :as registry]))
 
+(def cljs-extension-names
+  "Tools exposed by the CLJS Pythia agent beyond the bao JVM parity baseline."
+  #{"save_cohort"})
+
 (def jvm-tool-names
   "Exact `:name` of every entry in JVM trexsql.agent.tools/tool-specs."
   #{"search_existing_cohorts"
@@ -55,22 +59,27 @@
   (is (= 40 (count jvm-tool-names))))
 
 (deftest exposed-name-set-equals-jvm
-  (let [exposed (set (map :name tools/all))]
-    (testing "no names exposed that the JVM doesn't define"
-      (is (empty? (set/difference exposed jvm-tool-names))
-          (str "extra CLJS names: " (set/difference exposed jvm-tool-names))))
+  (let [exposed   (set (map :name tools/all))
+        expected  (set/union jvm-tool-names cljs-extension-names)]
+    (testing "no names exposed that are neither in JVM baseline nor CLJS extensions"
+      (is (empty? (set/difference exposed expected))
+          (str "extra CLJS names: " (set/difference exposed expected))))
     (testing "no JVM names missing from the CLJS exposure"
       (is (empty? (set/difference jvm-tool-names exposed))
           (str "missing CLJS names: " (set/difference jvm-tool-names exposed))))
-    (is (= jvm-tool-names exposed))
-    (is (= 40 (count exposed)))))
+    (is (= expected exposed))
+    (is (= 41 (count exposed)))))
 
 (deftest no-duplicate-names
   (let [names (map :name tools/all)]
     (is (= (count names) (count (set names))) "tool names are unique")))
 
 (deftest client-tools-count
-  (is (= 21 (count client/client-tools))))
+  (is (= 22 (count client/client-tools))))
+
+(deftest save-cohort-exposed
+  (is (some #(= "save_cohort" (:name %)) tools/all))
+  (is (nil? (:run (first (filter #(= "save_cohort" (:name %)) tools/all)))) "save_cohort is client-side (no :run)"))
 
 (deftest client-tools-have-no-run
   (doseq [t client/client-tools]
