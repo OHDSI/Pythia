@@ -198,6 +198,7 @@ export interface PlanStep {
   status: PlanStepStatus
   linkedProposalKind?: string
   linkedRoute?: string
+  required?: boolean
 }
 
 export interface Plan {
@@ -211,4 +212,5 @@ export interface Plan {
   status: 'active' | 'completed' | 'abandoned'
   createdAt: number
   updatedAt: number
+  gated?: boolean
 }
