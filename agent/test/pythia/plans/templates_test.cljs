@@ -3,6 +3,14 @@
             [pythia.plans.skills :as skills]
             [pythia.plans.templates :as t]))
 
+(deftest all-templates-have-unique-step-ids
+  ;; A template that reuses a skill (e.g. build-cohort for target+outcome) must
+  ;; give each step a distinct :id override, else plan-payload collapses them.
+  (doseq [scenario (keys t/templates)]
+    (let [ids (map :id (:steps (t/plan-payload scenario)))]
+      (is (= (count ids) (count (set ids)))
+          (str scenario " has duplicate step ids: " (vec ids))))))
+
 (deftest every-template-references-real-skills
   (doseq [[scenario tpl] t/templates]
     (testing scenario
