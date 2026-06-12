@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { applyGatedPlan, gateProposal, resetPlans, activePlan } from '../src/plan-state'
+import { applyGatedPlan, gateProposal, resetPlans, activePlan, applyCreatePlan } from '../src/plan-state'
 
 const payload = {
   scenario: 'standalone-concept-set',
@@ -41,5 +41,36 @@ describe('gated plan', () => {
 
   it('does not gate when no gated plan is active', () => {
     expect(gateProposal('createStandaloneConceptSet').ok).toBe(true)
+  })
+
+  it('does not gate a free-form (non-gated) plan', () => {
+    applyCreatePlan({
+      title: 'free form',
+      steps: [{ id: 'a', label: 'A', linkedProposalKind: 'createStandaloneConceptSet' }],
+    })
+    expect(activePlan.value?.gated).toBeFalsy()
+    expect(gateProposal('createStandaloneConceptSet').ok).toBe(true)
+  })
+
+  it('allows an optional step whose proposal sits before the first required step', () => {
+    applyGatedPlan({
+      scenario: 'x', title: 'x',
+      steps: [
+        { id: 'opt', label: 'Optional first', linkedProposalKind: 'addEntryEvent', required: false },
+        { id: 'req', label: 'Required next', linkedProposalKind: 'createStandaloneConceptSet', required: true },
+      ],
+    })
+    expect(gateProposal('addEntryEvent').ok).toBe(true)
+  })
+
+  it('applyGatedPlan rejects an empty step list', () => {
+    const r = applyGatedPlan({ scenario: 'x', title: 'x', steps: [] })
+    expect(r.ok).toBe(false)
+    expect(activePlan.value).toBeNull()
+  })
+
+  it('sets required on the first step too', () => {
+    applyGatedPlan(payload)
+    expect(activePlan.value?.steps[0].required).toBe(true)
   })
 })
