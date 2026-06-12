@@ -18,9 +18,11 @@
             [pythia.tools.search-phenotypes :as search-phenotypes]
             [pythia.tools.get-reference-phenotype :as get-reference-phenotype]
             [pythia.tools.validate-circe :as validate-circe]
-            [pythia.tools.search-ohdsi-book :as search-ohdsi-book]))
+            [pythia.tools.search-ohdsi-book :as search-ohdsi-book]
+            [pythia.tools.client :as client]))
 
-(def all
+(def server
+  "Server-side tools — each has an `:run` that the handler executes."
   [search-concepts/tool
    search-concept-sets/tool
    search-existing-cohorts/tool
@@ -40,3 +42,9 @@
    get-reference-phenotype/tool
    validate-circe/tool
    search-ohdsi-book/tool])
+
+(def all
+  "Every tool exposed to Bedrock: server tools (with :run) + client-side
+   proposal tools (schema-only, no :run). The exposed name set must equal the
+   JVM `tool-specs` name set."
+  (into server client/client-tools))

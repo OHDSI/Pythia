@@ -21,8 +21,8 @@
 (def schema
   {:type "object"
    :properties {:expression
-                {:type "object"
-                 :description "Circe CohortExpression JSON (object or JSON string)."}}
+                {:type ["string" "object"]
+                 :description "The draft Circe CohortExpression — either a JSON string or the equivalent JSON object. Must contain at minimum a PrimaryCriteria.CriteriaList."}}
    :required ["expression"]})
 
 (def ^:private max-sql 4000)
