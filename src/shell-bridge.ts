@@ -138,6 +138,10 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 12)
 }
 
+// CIRCE's canonical encoding for "patient must NOT have X": the criterion's
+// occurrence count is EXACTLY 0. Shared by every exclusion path below.
+const ZERO_OCCURRENCE_CARDINALITY = { type: 'EXACTLY', count: 0, countingMethod: 'ALL' } as const
+
 function domainToCriteriaType(domain: string | undefined): string {
   switch (domain) {
     case 'Condition': return 'ConditionOccurrence'
@@ -149,6 +153,29 @@ function domainToCriteriaType(domain: string | undefined): string {
     case 'Device': return 'DeviceExposure'
     case 'Specimen': return 'Specimen'
     default: return 'ConditionOccurrence'
+  }
+}
+
+// Map the agent's index-relative window {startDays,endDays} to ATLAS's
+// {startWindow,endWindow}. Days are relative to the index (cohort entry) start:
+// negative = before index, >= 0 = after, null/undefined = open-ended (all time).
+// An omitted startDays defaults to all-time-prior; an omitted endDays to the
+// index date (0). Passing `{}` therefore yields a wide-open [all-time, index]
+// window — callers shouldn't, but it is well-defined.
+function toEventWindow(
+  w: { startDays?: number | null; endDays?: number | null } | undefined,
+): Record<string, unknown> | undefined {
+  if (!w) return undefined
+  const toWindowBound = (d: number | null | undefined, openEndedAfter: boolean) =>
+    d === null || d === undefined
+      ? { days: null, beforeAfter: openEndedAfter ? 'AFTER' : 'BEFORE', referencePoint: 'INDEX_START' }
+      : { days: Math.abs(d), beforeAfter: d < 0 ? 'BEFORE' : 'AFTER', referencePoint: 'INDEX_START' }
+  // startDays: undefined and null both mean all-time-prior. endDays: undefined
+  // means the index date (0), but explicit null means all-time-after — so only
+  // default *undefined* to 0 (a plain `?? 0` would wrongly collapse null to 0).
+  return {
+    startWindow: toWindowBound(w.startDays ?? null, false),
+    endWindow: toWindowBound(w.endDays === undefined ? 0 : w.endDays, true),
   }
 }
 
@@ -521,7 +548,12 @@ export function proposalFromToolCall(
         }
       }
       if (args.group === 'exclusion') {
-        return { kind: 'addCensoringCriterion', event }
+        const excEvent = { ...event, cardinality: ZERO_OCCURRENCE_CARDINALITY }
+        return {
+          kind: 'addInclusionRule',
+          rule: { id: uid(), name: args.conceptName ? `Exclude: ${args.conceptName}` : 'Exclusion',
+            criteriaGroups: [{ id: uid(), logicType: 'ALL', events: [excEvent] }] },
+        }
       }
       return { kind: 'addEntryEvent', event }
     }
@@ -541,10 +573,7 @@ export function proposalFromToolCall(
       // ANY-logic with cardinality 0 would mean "≥1 of these is absent",
       // which is not what an exclusion list means.
       const events = isExclusion
-        ? baseEvents.map(e => ({
-            ...e,
-            cardinality: { type: 'EXACTLY', count: 0, countingMethod: 'ALL' },
-          }))
+        ? baseEvents.map(e => ({ ...e, cardinality: ZERO_OCCURRENCE_CARDINALITY }))
         : baseEvents
       const logicType = isExclusion
         ? 'ALL'
@@ -656,14 +685,23 @@ export function proposalFromToolCall(
 
     case 'add_inclusion_rule': {
       const r = args as InclusionRuleArgs
-      const events = (r.events ?? []).map(buildEventFromCriterion).filter(Boolean)
+      const events = (r.events ?? []).map(buildEventFromCriterion)
+        .filter(Boolean) as Record<string, unknown>[]
       if (events.length === 0) return null
+      const isExcludeGroup = r.logicType === 'AT_MOST' && (r.count ?? 0) === 0
+      const finalEvents = isExcludeGroup
+        ? events.map(e => ({ ...e, cardinality: ZERO_OCCURRENCE_CARDINALITY }))
+        : events
+      const tw = toEventWindow(r.temporalWindow)
+      const windowedEvents = tw
+        ? finalEvents.map(e => ({ ...e, temporalWindow: tw }))
+        : finalEvents
       const group: Record<string, unknown> = {
         id: uid(),
-        logicType: r.logicType ?? 'ALL',
-        events,
+        logicType: isExcludeGroup ? 'ALL' : (r.logicType ?? 'ALL'),
+        events: windowedEvents,
       }
-      if (r.count !== undefined) group.count = r.count
+      if (!isExcludeGroup && r.count !== undefined) group.count = r.count
       const ruleName =
         (typeof r.name === 'string' && r.name.trim()) ||
         deriveRuleName(r.events ?? [], undefined, r.logicType === 'ANY' ? 'OR' : 'AND')

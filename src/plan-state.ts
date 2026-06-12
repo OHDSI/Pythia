@@ -151,6 +151,59 @@ export const PLAN_TOOL_NAMES = {
   update: 'update_plan_step',
 } as const
 
+export interface GatedPlanPayload {
+  scenario: string
+  title: string
+  document?: string
+  steps: Array<{
+    id: string
+    label: string
+    linkedProposalKind?: string | null
+    linkedRoute?: string | null
+    required?: boolean
+  }>
+}
+
+export function applyGatedPlan(
+  payload: GatedPlanPayload
+): { ok: true; planId: string } | { ok: false; reason: string } {
+  const steps = Array.isArray(payload?.steps) ? payload.steps : []
+  if (steps.length === 0) return { ok: false, reason: 'template payload has no steps' }
+  const res = applyCreatePlan({
+    title: payload.title,
+    document: payload.document,
+    steps: steps.map(s => ({
+      id: s.id,
+      label: s.label,
+      linkedProposalKind: s.linkedProposalKind ?? undefined,
+      linkedRoute: s.linkedRoute ?? undefined,
+    })),
+  })
+  if (!res.ok) return res
+  const cur = activePlan.value!
+  cur.gated = true
+  steps.forEach((s, i) => { if (cur.steps[i]) cur.steps[i].required = !!s.required })
+  return { ok: true, planId: res.planId }
+}
+
+// Reject a proposal that jumps ahead of the first not-done required step of a
+// GATED plan. Out-of-band kinds (not in the plan) and non-gated/free-form plans
+// are always allowed.
+export function gateProposal(
+  proposalKind: string
+): { ok: true } | { ok: false; reason: string } {
+  const cur = activePlan.value
+  if (!cur || !cur.gated) return { ok: true }
+  const target = cur.steps.findIndex(s => s.linkedProposalKind === proposalKind && s.status !== 'done')
+  if (target === -1) return { ok: true }
+  const firstPending = cur.steps.findIndex(s => s.required && s.status !== 'done')
+  if (firstPending !== -1 && target > firstPending) {
+    const blk = cur.steps[firstPending]
+    return { ok: false, reason: `Step "${blk.label}" (${blk.id}) must complete before this one. Do that step first.` }
+  }
+  return { ok: true }
+}
+
 export function isPlanTool(toolName: string): boolean {
   return toolName === PLAN_TOOL_NAMES.create || toolName === PLAN_TOOL_NAMES.update
 }

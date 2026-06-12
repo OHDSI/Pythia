@@ -30,7 +30,7 @@ import {
   setTokenProvider,
   switchToSession,
 } from './chat-session'
-import { activePlan, markStepProgress } from './plan-state'
+import { activePlan, markStepProgress, applyUpdatePlanStep } from './plan-state'
 import PlanCard from './PlanCard.vue'
 import type { PlanStep } from './types'
 import CriterionProposalCard from './CriterionProposalCard.vue'
@@ -412,7 +412,10 @@ function onOpenStep(step: PlanStep) {
     kind: 'navigate',
     route: { name: step.linkedRoute, params: {} },
   } as never)
-  markStepProgress(step.linkedRoute, 'in_progress')
+  // Mark this step started by id (markStepProgress matches on linkedProposalKind,
+  // not route, so it can't tick a navigate-only "Open" step). Don't un-complete
+  // a done step.
+  if (step.status !== 'done') applyUpdatePlanStep({ stepId: step.id, status: 'in_progress' })
 }
 
 function onReject(id: string) {

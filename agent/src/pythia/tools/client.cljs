@@ -38,10 +38,9 @@
 
 (def ^:private temporal-window-schema
   {:type "object"
-   :properties {:priorStart {:type "number"}
-                :priorEnd   {:type "number"}
-                :postStart  {:type "number"}
-                :postEnd    {:type "number"}}})
+   :description "Optional temporal window for the criteria, relative to the index (cohort entry) start date."
+   :properties {:startDays {:type ["number" "null"] :description "Window start in days vs index start: negative = before index, 0 = at index, null = all time prior."}
+                :endDays   {:type ["number" "null"] :description "Window end in days vs index start: positive = after index, null = all time after. Default 0 (index date)."}}})
 
 (def ^:private agent-visible-views
   "Route names the agent may navigate to — the agentVisible=true entries of
@@ -312,6 +311,12 @@
                                                      :endDate   {:type "string" :description "ISO date YYYY-MM-DD"}}}}
              :required ["name"]}}
 
+   {:name "save_cohort"
+    :description "Persist the CURRENTLY OPEN cohort to the WebAPI so it gets a stable id. Call this AFTER the user has accepted the cohort's entry event + criteria, and BEFORE creating any analysis (incidence rate / pathway / characterization) that must reference this cohort by id — analyses can only target SAVED cohorts. Returns the saved cohort id. Optional name/description override the open cohort's current values."
+    :schema {:type "object"
+             :properties {:name        {:type "string" :description "Optional clinical name to save under (defaults to the open cohort's name)."}
+                          :description {:type "string" :description "Optional description."}}}}
+
    {:name "ask_user"
     :description "Ask the user a clarifying question with 2–4 discrete clickable options when the next action genuinely depends on their preference and the surrounding context can't disambiguate. Canonical case: the user is editing artifact X and asks to 'create a Y' — should you UPDATE X (repurpose the open editor) or CREATE Y as a new artifact (leaving X alone)? Other cases: pick which of multiple search-result matches the user means; confirm a potentially destructive change. Do NOT use for routine yes/no — only when the choice changes which tools you'd call. After calling this, write a brief one-line preamble and END YOUR TURN; do not call other tools. The user's selection arrives as the next user message so you can act on it."
     :schema {:type "object"
@@ -348,7 +353,7 @@
                                                                                       "setObservationPeriod" "setExitCriteria" "addCensoringCriterion"
                                                                                       "createStandaloneConceptSet" "createFeatureAnalysis"
                                                                                       "createCharacterization" "createPathway" "createIncidenceRate"
-                                                                                      "navigate"]
+                                                                                      "saveCohort" "navigate"]
                                                                                :description "Optional. AgentProposal kind the host applies. When set, the UI auto-ticks this step the moment a matching proposal is accepted, so you don't need a follow-up update_plan_step."}
                                                           :linkedRoute {:type "string" :description "Optional ATLAS route name (matches the navigate_to view enum). Renders an 'Open' button on the step row."}}
                                              :required ["id" "label"]}}}

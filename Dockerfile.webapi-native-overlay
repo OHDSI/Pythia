@@ -1,0 +1,14 @@
+# Overlay image: the pinned trexsql base with the embedded WebAPI native lib
+# swapped for a locally rebuilt one. Used to ship reflect-config / GraalVM fixes
+# without a full image release — set TREX_IMAGE to the built tag in .env.
+#
+#   docker build -f Dockerfile.webapi-native-overlay -t ghcr.io/ohdsi/trexsql:ir-reflect-fix .
+#
+# The `lib` stage is the output of plugins/webapi/Dockerfile.native-lib in ../trex,
+# built locally as `webapi-native-lib:ir-reflect-fix` (it exports the rebuilt
+# /out/libwebapi-native.so). We COPY that over /usr/lib/libwebapi-native.so in the
+# pinned base.
+ARG BASE=ghcr.io/ohdsi/trexsql@sha256:666f3764cf2fedbf4870c6dadc13ad63ad8d0dc15592bc326dc53321f16d15ab
+FROM webapi-native-lib:ir-reflect-fix AS lib
+FROM ${BASE}
+COPY --from=lib /out/libwebapi-native.so /usr/lib/libwebapi-native.so

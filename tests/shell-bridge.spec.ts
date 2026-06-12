@@ -35,17 +35,6 @@ describe('proposalFromToolCall', () => {
     expect(p?.kind).toBe('addInclusionRule')
   })
 
-  it('add_criterion group=exclusion → addCensoringCriterion', () => {
-    const p = proposalFromToolCall('add_criterion', {
-      conceptId: 443238,
-      conceptName: 'Type 1 diabetes',
-      domain: 'Condition',
-      includeDescendants: true,
-      group: 'exclusion',
-    })
-    expect(p?.kind).toBe('addCensoringCriterion')
-  })
-
   it('set_observation_window → setObservationPeriod', () => {
     const p = proposalFromToolCall('set_observation_window', { priorDays: 365, postDays: 30 })
     expect(p).toMatchObject({
@@ -234,6 +223,58 @@ describe('proposalFromToolCall', () => {
     expect(
       proposalFromToolCall('navigate_to', { view: 'totally-fake-view' })
     ).toBeNull()
+  })
+
+  it('add_criterion exclusion produces an inclusion rule with EXACTLY 0, not censoring', () => {
+    const p: any = proposalFromToolCall('add_criterion', {
+      conceptId: 443238, conceptName: 'Type 1 diabetes mellitus', domain: 'Condition',
+      group: 'exclusion', includeDescendants: true,
+    })
+    expect(p.kind).toBe('addInclusionRule')
+    const ev = p.rule.criteriaGroups[0].events[0]
+    expect(ev.cardinality).toEqual({ type: 'EXACTLY', count: 0, countingMethod: 'ALL' })
+  })
+
+  it('maps temporalWindow to event startWindow/endWindow', () => {
+    const p: any = proposalFromToolCall('add_inclusion_rule', {
+      name: 'Metformin within 365d before index', logicType: 'AT_LEAST', count: 1,
+      temporalWindow: { startDays: -365, endDays: 0 },
+      events: [{ conceptId: 1503297, conceptName: 'Metformin', domain: 'Drug', includeDescendants: true }],
+    })
+    const ev = p.rule.criteriaGroups[0].events[0]
+    expect(ev.temporalWindow.startWindow).toEqual({ days: 365, beforeAfter: 'BEFORE', referencePoint: 'INDEX_START' })
+    expect(ev.temporalWindow.endWindow).toEqual({ days: 0, beforeAfter: 'AFTER', referencePoint: 'INDEX_START' })
+  })
+
+  it('add_inclusion_rule with logicType AT_MOST count 0 emits EXACTLY 0 on the event', () => {
+    const p: any = proposalFromToolCall('add_inclusion_rule', {
+      name: 'Exclude T1DM', logicType: 'AT_MOST', count: 0,
+      events: [{ conceptId: 443238, conceptName: 'Type 1 diabetes mellitus', domain: 'Condition', includeDescendants: true }],
+    })
+    expect(p.kind).toBe('addInclusionRule')
+    const g = p.rule.criteriaGroups[0]
+    expect(g.logicType).toBe('ALL')
+    expect(g.count).toBeUndefined()
+    expect(g.events[0].cardinality).toEqual({ type: 'EXACTLY', count: 0, countingMethod: 'ALL' })
+  })
+
+  it('maps null temporalWindow bounds to all-time (days null)', () => {
+    const p: any = proposalFromToolCall('add_inclusion_rule', {
+      name: 'any time prior', logicType: 'AT_LEAST', count: 1,
+      temporalWindow: { startDays: null, endDays: null },
+      events: [{ conceptId: 1, conceptName: 'X', domain: 'Condition', includeDescendants: true }],
+    })
+    const tw = p.rule.criteriaGroups[0].events[0].temporalWindow
+    expect(tw.startWindow).toEqual({ days: null, beforeAfter: 'BEFORE', referencePoint: 'INDEX_START' })
+    expect(tw.endWindow).toEqual({ days: null, beforeAfter: 'AFTER', referencePoint: 'INDEX_START' })
+  })
+
+  it('omits temporalWindow on events when none is given', () => {
+    const p: any = proposalFromToolCall('add_inclusion_rule', {
+      name: 'no window', logicType: 'AT_LEAST', count: 1,
+      events: [{ conceptId: 1, conceptName: 'X', domain: 'Condition', includeDescendants: true }],
+    })
+    expect(p.rule.criteriaGroups[0].events[0].temporalWindow).toBeUndefined()
   })
 })
 

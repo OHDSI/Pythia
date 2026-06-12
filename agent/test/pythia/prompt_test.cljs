@@ -53,3 +53,21 @@
     ;; format-views interpolation produced the navigate_to view bullets.
     (is (str/includes? s "- `cohort-edit` — params: id — Cohort editor"))
     (is (str/includes? s "- `home` — Home"))))
+
+(deftest routes-through-select-plan-template
+  (let [p (prompt/system-prompt {})]
+    (is (re-find #"select_plan_template" p)
+        "prompt must instruct the model to select a template first")))
+
+(deftest renders-active-plan-step
+  (let [ctx {:route "/atlas/#/cohortdefinitions"
+             :plan {:title "Design a cohort"
+                    :steps [{:id "find-existing" :label "Search existing" :status "done"}
+                            {:id "resolve-concept-ids" :label "Resolve concepts" :status "pending" :required true}]}}
+        p (prompt/system-prompt ctx)]
+    (is (re-find #"Active plan" p))
+    (is (re-find #"Resolve concepts" p) "must name the current step")
+    (is (re-find #"first not-done required step" p))))
+
+(deftest no-plan-block-without-plan
+  (is (not (re-find #"Active plan" (prompt/system-prompt {:route "/atlas/"})))))

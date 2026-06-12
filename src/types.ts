@@ -32,11 +32,9 @@ export interface ConceptSetArgs {
   items?: ConceptRefArgs[]
 }
 
-export interface TemporalWindowArgs {
-  priorStart?: number
-  priorEnd?: number
-  postStart?: number
-  postEnd?: number
+export interface AgentTemporalWindow {
+  startDays?: number | null   // days vs index start; <0 before, >=0 after, null = all-time prior
+  endDays?: number | null     // days vs index start; null = all-time after; default 0
 }
 
 export interface InclusionRuleArgs {
@@ -44,7 +42,7 @@ export interface InclusionRuleArgs {
   description?: string
   logicType?: 'ALL' | 'ANY' | 'AT_LEAST' | 'AT_MOST'
   count?: number
-  temporalWindow?: TemporalWindowArgs
+  temporalWindow?: AgentTemporalWindow
   events?: CriterionArgs[]
 }
 
@@ -200,6 +198,7 @@ export interface PlanStep {
   status: PlanStepStatus
   linkedProposalKind?: string
   linkedRoute?: string
+  required?: boolean
 }
 
 export interface Plan {
@@ -213,4 +212,5 @@ export interface Plan {
   status: 'active' | 'completed' | 'abandoned'
   createdAt: number
   updatedAt: number
+  gated?: boolean
 }
