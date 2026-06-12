@@ -34,7 +34,8 @@
   []
   (if-let [c @index-cache]
     (js/Promise.resolve c)
-    (-> (resources/read-text "phenotype-library/cohorts-index.edn")
+    (-> (try (resources/read-text "phenotype-library/cohorts-index.edn")
+             (catch :default _ (js/Promise.resolve nil)))
         (.then (fn [text]
                  (let [idx (if (str/blank? (str text))
                              []
