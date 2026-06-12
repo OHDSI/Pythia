@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { proposals, lastNavigation, sessionRouteContext, scanForPlanTemplateOutput } from '../src/chat-session'
+import { proposals, lastNavigation, sessionRouteContext, scanForPlanTemplateOutput, collectPlanTemplateCallIds } from '../src/chat-session'
 import type { UIMessage } from 'ai'
 
 describe('navigate_to short-circuit', () => {
@@ -176,6 +176,62 @@ describe('scanForPlanTemplateOutput (server-tool output interception)', () => {
     const part = { type: 'tool-create_plan', state: 'output-available', toolCallId: 'x', output: payload }
     scanForPlanTemplateOutput([msg([part])], new Set(), apply)
     expect(apply).not.toHaveBeenCalled()
+  })
+})
+
+describe('collectPlanTemplateCallIds (restore dedup seeding)', () => {
+  const planPart = (toolCallId: string, output: unknown, state = 'output-available') => ({
+    type: 'tool-select_plan_template',
+    state,
+    toolCallId,
+    output,
+  })
+  const msg = (parts: unknown[]): UIMessage =>
+    ({ id: 'm1', role: 'assistant', parts } as unknown as UIMessage)
+
+  const payload = {
+    scenario: 'standalone-concept-set',
+    title: 'Create a concept set',
+    steps: [{ id: 's1', label: 'A', linkedProposalKind: null, required: true }],
+  }
+
+  it('returns the toolCallIds of output-available template parts', () => {
+    const messages = [
+      msg([planPart('tc-1', payload)]),
+      msg([planPart('tc-2', payload)]),
+    ]
+    expect(collectPlanTemplateCallIds(messages)).toEqual(['tc-1', 'tc-2'])
+  })
+
+  it('ignores non-output-available template parts', () => {
+    const messages = [msg([planPart('tc-1', payload, 'input-available')])]
+    expect(collectPlanTemplateCallIds(messages)).toEqual([])
+  })
+
+  it('ignores non-plan-template parts', () => {
+    const part = { type: 'tool-create_plan', state: 'output-available', toolCallId: 'x', output: payload }
+    expect(collectPlanTemplateCallIds([msg([part])])).toEqual([])
+  })
+
+  it('tolerates empty / undefined inputs', () => {
+    expect(collectPlanTemplateCallIds([])).toEqual([])
+    expect(collectPlanTemplateCallIds(undefined as unknown as readonly unknown[])).toEqual([])
+    expect(collectPlanTemplateCallIds([msg([])])).toEqual([])
+  })
+
+  it('restore regression: a seeded template output is NOT re-applied', () => {
+    const messages = [msg([planPart('tc-1', payload)])]
+    // Empty set (fresh stream): the plan IS applied.
+    const freshApply = vi.fn()
+    scanForPlanTemplateOutput(messages, new Set<string>(), freshApply)
+    expect(freshApply).toHaveBeenCalledTimes(1)
+
+    // Restore sequence: seed from the persisted messages, then scan — the
+    // already-persisted output must be skipped so restored progress survives.
+    const seeded = new Set<string>(collectPlanTemplateCallIds(messages))
+    const restoreApply = vi.fn()
+    scanForPlanTemplateOutput(messages, seeded, restoreApply)
+    expect(restoreApply).not.toHaveBeenCalled()
   })
 })
 

@@ -473,6 +473,26 @@ export function scanForPlanTemplateOutput(
   }
 }
 
+// Seed the dedup set from a (persisted) messages array. On session restore the
+// persisted messages already contain the `select_plan_template` output part —
+// without seeding, the deep watch would see it with an empty set and re-apply
+// the gated plan, clobbering the progress `restorePlans` just restored. We
+// collect every toolCallId of an output-available template part, matching the
+// SAME part-shape predicate `scanForPlanTemplateOutput` uses (type + state +
+// toolCallId) so the two stay in sync.
+export function collectPlanTemplateCallIds(messages: readonly unknown[]): string[] {
+  const ids: string[] = []
+  for (const m of (messages ?? []) as Array<{ parts?: unknown[] }>) {
+    for (const part of (m?.parts ?? []) as Array<Record<string, unknown>>) {
+      if (part?.type === 'tool-select_plan_template' && part?.state === 'output-available'
+          && typeof part?.toolCallId === 'string') {
+        ids.push(part.toolCallId as string)
+      }
+    }
+  }
+  return ids
+}
+
 export function getChatInstance(): Chat<UIMessage> {
   if (chatInstance) return chatInstance
   const id = ensureActiveSession()
@@ -483,6 +503,12 @@ export function getChatInstance(): Chat<UIMessage> {
     active: persisted.activePlan ?? null,
     history: persisted.planHistory ?? [],
   })
+  // Seed the dedup set from the persisted messages BEFORE the Chat is
+  // constructed and its deep watch attached, so the already-persisted
+  // template output is treated as already-applied and `scanForPlanTemplateOutput`
+  // does not re-apply the gated plan (which would reset the restored progress).
+  appliedPlanTemplateCallIds.clear()
+  for (const cid of collectPlanTemplateCallIds(persisted.messages)) appliedPlanTemplateCallIds.add(cid)
 
   const transport = new DefaultChatTransport({
     api: '/WebAPI/trexsql/agent/chat',
@@ -651,7 +677,7 @@ export function getChatInstance(): Chat<UIMessage> {
             chat.addToolResult({
               tool: toolCall.toolName,
               toolCallId: toolCall.toolCallId,
-              output: gate.reason,
+              output: { instruction: gate.reason },
             })
             return
           }
@@ -693,7 +719,6 @@ export function newChat() {
 export function switchToSession(id: string) {
   if (id === activeSessionId.value) return
   clearProposalTimers()
-  appliedPlanTemplateCallIds.clear()
   const persisted = readSession(id)
   safeWrite(ACTIVE_KEY, id)
   activeSessionId.value = id
@@ -704,6 +729,12 @@ export function switchToSession(id: string) {
     active: persisted.activePlan ?? null,
     history: persisted.planHistory ?? [],
   })
+  // Seed the dedup set from the restored messages BEFORE assigning them to the
+  // Chat (which fires the deep watch), so the persisted template output is
+  // treated as already-applied and the gated plan is not re-applied — that
+  // would reset the step progress `restorePlans` just restored.
+  appliedPlanTemplateCallIds.clear()
+  for (const cid of collectPlanTemplateCallIds(persisted.messages)) appliedPlanTemplateCallIds.add(cid)
   if (chatInstance) chatInstance.messages = persisted.messages
 }
 
