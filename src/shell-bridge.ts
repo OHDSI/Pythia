@@ -156,15 +156,27 @@ function domainToCriteriaType(domain: string | undefined): string {
   }
 }
 
+// Map the agent's index-relative window {startDays,endDays} to ATLAS's
+// {startWindow,endWindow}. Days are relative to the index (cohort entry) start:
+// negative = before index, >= 0 = after, null/undefined = open-ended (all time).
+// An omitted startDays defaults to all-time-prior; an omitted endDays to the
+// index date (0). Passing `{}` therefore yields a wide-open [all-time, index]
+// window — callers shouldn't, but it is well-defined.
 function toEventWindow(
   w: { startDays?: number | null; endDays?: number | null } | undefined,
 ): Record<string, unknown> | undefined {
   if (!w) return undefined
-  const win = (d: number | null | undefined, defAfter: boolean) =>
-    d === null
-      ? { days: null, beforeAfter: defAfter ? 'AFTER' : 'BEFORE', referencePoint: 'INDEX_START' }
-      : { days: Math.abs(d ?? 0), beforeAfter: (d ?? 0) < 0 ? 'BEFORE' : 'AFTER', referencePoint: 'INDEX_START' }
-  return { startWindow: win(w.startDays ?? null, false), endWindow: win(w.endDays ?? 0, true) }
+  const toWindowBound = (d: number | null | undefined, openEndedAfter: boolean) =>
+    d === null || d === undefined
+      ? { days: null, beforeAfter: openEndedAfter ? 'AFTER' : 'BEFORE', referencePoint: 'INDEX_START' }
+      : { days: Math.abs(d), beforeAfter: d < 0 ? 'BEFORE' : 'AFTER', referencePoint: 'INDEX_START' }
+  // startDays: undefined and null both mean all-time-prior. endDays: undefined
+  // means the index date (0), but explicit null means all-time-after — so only
+  // default *undefined* to 0 (a plain `?? 0` would wrongly collapse null to 0).
+  return {
+    startWindow: toWindowBound(w.startDays ?? null, false),
+    endWindow: toWindowBound(w.endDays === undefined ? 0 : w.endDays, true),
+  }
 }
 
 function deriveRuleName(items: CriterionArgs[], group?: string, logic?: string): string {

@@ -257,6 +257,25 @@ describe('proposalFromToolCall', () => {
     expect(g.count).toBeUndefined()
     expect(g.events[0].cardinality).toEqual({ type: 'EXACTLY', count: 0, countingMethod: 'ALL' })
   })
+
+  it('maps null temporalWindow bounds to all-time (days null)', () => {
+    const p: any = proposalFromToolCall('add_inclusion_rule', {
+      name: 'any time prior', logicType: 'AT_LEAST', count: 1,
+      temporalWindow: { startDays: null, endDays: null },
+      events: [{ conceptId: 1, conceptName: 'X', domain: 'Condition', includeDescendants: true }],
+    })
+    const tw = p.rule.criteriaGroups[0].events[0].temporalWindow
+    expect(tw.startWindow).toEqual({ days: null, beforeAfter: 'BEFORE', referencePoint: 'INDEX_START' })
+    expect(tw.endWindow).toEqual({ days: null, beforeAfter: 'AFTER', referencePoint: 'INDEX_START' })
+  })
+
+  it('omits temporalWindow on events when none is given', () => {
+    const p: any = proposalFromToolCall('add_inclusion_rule', {
+      name: 'no window', logicType: 'AT_LEAST', count: 1,
+      events: [{ conceptId: 1, conceptName: 'X', domain: 'Condition', includeDescendants: true }],
+    })
+    expect(p.rule.criteriaGroups[0].events[0].temporalWindow).toBeUndefined()
+  })
 })
 
 describe('navigate_to via manifest', () => {
