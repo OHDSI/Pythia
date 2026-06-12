@@ -35,11 +35,6 @@ describe('proposalFromToolCall', () => {
     expect(p?.kind).toBe('addInclusionRule')
   })
 
-  it('add_criterion group=exclusion → addCensoringCriterion (legacy; superseded by EXACTLY-0 test below)', () => {
-    // This test is intentionally removed in favour of the precise EXACTLY-0 test below.
-    // Kept as a placeholder so surrounding line numbers stay stable.
-  })
-
   it('set_observation_window → setObservationPeriod', () => {
     const p = proposalFromToolCall('set_observation_window', { priorDays: 365, postDays: 30 })
     expect(p).toMatchObject({
@@ -248,6 +243,7 @@ describe('proposalFromToolCall', () => {
     expect(p.kind).toBe('addInclusionRule')
     const g = p.rule.criteriaGroups[0]
     expect(g.logicType).toBe('ALL')
+    expect(g.count).toBeUndefined()
     expect(g.events[0].cardinality).toEqual({ type: 'EXACTLY', count: 0, countingMethod: 'ALL' })
   })
 })
