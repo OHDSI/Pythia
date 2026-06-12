@@ -1,0 +1,25 @@
+{
+  "name": "@trexsql/agent",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pythia cohort design agent — mounted Deno function, served at /plugins/trexsql/agent/*",
+  "trex": {
+    "functions": {
+      "env": {
+        "_shared": {
+          "AWS_REGION": "${AWS_REGION}",
+          "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}",
+          "BAO_AGENT_MODEL": "${BAO_AGENT_MODEL}",
+          "BAO_AGENT_WEBAPI_URL": "${BAO_AGENT_WEBAPI_URL}"
+        }
+      },
+      "api": [
+        {
+          "source": "/agent",
+          "function": "/functions",
+          "imports": "/functions/deno.json"
+        }
+      ]
+    }
+  }
+}
