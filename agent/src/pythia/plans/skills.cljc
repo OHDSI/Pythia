@@ -56,6 +56,12 @@
     :tools ["add_exit_criterion" "set_censor_event"] :proposal-kind "setExitCriteria" :route nil
     :success "cohort exit (and censor if applicable) set"}
 
+   "build-cohort"
+   {:label "Build and save a cohort"
+    :tools ["set_entry_event" "add_criteria" "save_cohort"]
+    :proposal-kind "saveCohort" :route "cohort-edit"
+    :success "a cohort is defined and saved (has an id)"}
+
    "create-feature-analysis"
    {:label "Create a feature analysis"
     :tools ["create_feature_analysis"]
