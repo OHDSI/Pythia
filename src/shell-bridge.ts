@@ -138,6 +138,10 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 12)
 }
 
+// CIRCE's canonical encoding for "patient must NOT have X": the criterion's
+// occurrence count is EXACTLY 0. Shared by every exclusion path below.
+const ZERO_OCCURRENCE_CARDINALITY = { type: 'EXACTLY', count: 0, countingMethod: 'ALL' } as const
+
 function domainToCriteriaType(domain: string | undefined): string {
   switch (domain) {
     case 'Condition': return 'ConditionOccurrence'
@@ -521,8 +525,7 @@ export function proposalFromToolCall(
         }
       }
       if (args.group === 'exclusion') {
-        const excEvent = { ...(event as Record<string, unknown>),
-          cardinality: { type: 'EXACTLY', count: 0, countingMethod: 'ALL' } }
+        const excEvent = { ...event, cardinality: ZERO_OCCURRENCE_CARDINALITY }
         return {
           kind: 'addInclusionRule',
           rule: { id: uid(), name: args.conceptName ? `Exclude: ${args.conceptName}` : 'Exclusion',
@@ -547,10 +550,7 @@ export function proposalFromToolCall(
       // ANY-logic with cardinality 0 would mean "≥1 of these is absent",
       // which is not what an exclusion list means.
       const events = isExclusion
-        ? baseEvents.map(e => ({
-            ...e,
-            cardinality: { type: 'EXACTLY', count: 0, countingMethod: 'ALL' },
-          }))
+        ? baseEvents.map(e => ({ ...e, cardinality: ZERO_OCCURRENCE_CARDINALITY }))
         : baseEvents
       const logicType = isExclusion
         ? 'ALL'
@@ -662,12 +662,12 @@ export function proposalFromToolCall(
 
     case 'add_inclusion_rule': {
       const r = args as InclusionRuleArgs
-      const events = (r.events ?? []).map(buildEventFromCriterion).filter(Boolean)
+      const events = (r.events ?? []).map(buildEventFromCriterion)
+        .filter(Boolean) as Record<string, unknown>[]
       if (events.length === 0) return null
       const isExcludeGroup = r.logicType === 'AT_MOST' && (r.count ?? 0) === 0
       const finalEvents = isExcludeGroup
-        ? events.map(e => ({ ...(e as Record<string, unknown>),
-            cardinality: { type: 'EXACTLY', count: 0, countingMethod: 'ALL' } }))
+        ? events.map(e => ({ ...e, cardinality: ZERO_OCCURRENCE_CARDINALITY }))
         : events
       const group: Record<string, unknown> = {
         id: uid(),
