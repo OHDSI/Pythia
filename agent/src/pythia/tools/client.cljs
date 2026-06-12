@@ -353,7 +353,7 @@
                                                                                       "setObservationPeriod" "setExitCriteria" "addCensoringCriterion"
                                                                                       "createStandaloneConceptSet" "createFeatureAnalysis"
                                                                                       "createCharacterization" "createPathway" "createIncidenceRate"
-                                                                                      "navigate"]
+                                                                                      "saveCohort" "navigate"]
                                                                                :description "Optional. AgentProposal kind the host applies. When set, the UI auto-ticks this step the moment a matching proposal is accepted, so you don't need a follow-up update_plan_step."}
                                                           :linkedRoute {:type "string" :description "Optional ATLAS route name (matches the navigate_to view enum). Renders an 'Open' button on the step row."}}
                                              :required ["id" "label"]}}}
