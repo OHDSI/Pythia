@@ -16,13 +16,16 @@ import type { MessageBus } from './main'
 import type { AskState, Plan, ProposalState } from './types'
 import {
   activePlan,
+  applyGatedPlan,
   applyPlanToolCall,
+  gateProposal,
   isPlanTool,
   planHistory,
   resetPlans,
   restorePlans,
   snapshotPlans,
 } from './plan-state'
+import type { GatedPlanPayload } from './plan-state'
 
 let _hostBus: MessageBus | null = null
 let hostApplyProposal: ((p: unknown) => void) | null = null
@@ -306,6 +309,11 @@ function attachPersistence(chat: Chat<UIMessage>) {
   watch(
     () => chat.messages,
     msgs => {
+      // Intercept select_plan_template server-tool output (a message part, not
+      // an onToolCall event) and instantiate the gated plan card.
+      scanForPlanTemplateOutput(msgs, appliedPlanTemplateCallIds, payload => {
+        applyGatedPlan(payload)
+      })
       const id = activeSessionId.value
       if (!id) return
       persistAll()
@@ -429,6 +437,42 @@ export function resolveProposal(
   })
 }
 
+// `select_plan_template` is a SERVER tool (has `:run` agent-side). Its OUTPUT
+// — the gated-plan payload — is streamed back as a `tool-select_plan_template`
+// message part with `state: 'output-available'`. Server-tool outputs do NOT
+// flow through `onToolCall` (that only fires for client-executed tools and
+// carries input, not output), so we observe the message parts instead. We
+// dedupe by toolCallId so a deep watch firing repeatedly only instantiates the
+// plan once.
+const appliedPlanTemplateCallIds = new Set<string>()
+
+export function scanForPlanTemplateOutput(
+  messages: ReadonlyArray<UIMessage>,
+  seen: Set<string>,
+  apply: (payload: GatedPlanPayload) => void
+): void {
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.parts)) continue
+    for (const part of m.parts) {
+      const p = part as {
+        type?: string
+        state?: string
+        toolCallId?: string
+        output?: unknown
+      }
+      if (p.type !== 'tool-select_plan_template') continue
+      if (p.state !== 'output-available') continue
+      const id = p.toolCallId ?? ''
+      if (id && seen.has(id)) continue
+      const out = p.output
+      if (out && typeof out === 'object' && 'steps' in (out as object)) {
+        apply(out as GatedPlanPayload)
+        if (id) seen.add(id)
+      }
+    }
+  }
+}
+
 export function getChatInstance(): Chat<UIMessage> {
   if (chatInstance) return chatInstance
   const id = ensureActiveSession()
@@ -455,6 +499,19 @@ export function getChatInstance(): Chat<UIMessage> {
     body: () => ({
       sourceKey: sessionSourceKey.value,
       routeContext: sessionRouteContext.value,
+      // Live plan state so the agent prompt can render the `## Active plan`
+      // block. entry.cljs reads this top-level `plan` key.
+      plan: activePlan.value
+        ? {
+            title: activePlan.value.title,
+            steps: activePlan.value.steps.map(s => ({
+              id: s.id,
+              label: s.label,
+              status: s.status,
+              required: s.required ?? false,
+            })),
+          }
+        : null,
     }),
   })
 
@@ -579,6 +636,26 @@ export function getChatInstance(): Chat<UIMessage> {
         return
       }
       if (CLIENT_SIDE_TOOLS.has(toolCall.toolName)) {
+        // Gate skip-ahead: if a GATED plan is active and this proposal jumps
+        // past its first not-done required step, don't render the card —
+        // feed the correction back as the tool-result so the model retries
+        // the correct step (same addToolResult path the timeout handler uses).
+        const proposal = proposalFromToolCall(
+          toolCall.toolName as Parameters<typeof proposalFromToolCall>[0],
+          (toolCall.input ?? {}) as Parameters<typeof proposalFromToolCall>[1]
+        )
+        const kind = (proposal as { kind?: string } | null)?.kind
+        if (kind) {
+          const gate = gateProposal(kind)
+          if (!gate.ok) {
+            chat.addToolResult({
+              tool: toolCall.toolName,
+              toolCallId: toolCall.toolCallId,
+              output: gate.reason,
+            })
+            return
+          }
+        }
         const { groupId, groupIndex } = locateGroup(chat.messages, toolCall.toolCallId)
         recordProposal(
           { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, input: toolCall.input },
@@ -598,6 +675,7 @@ export function getChatInstance(): Chat<UIMessage> {
 
 export function newChat() {
   clearProposalTimers()
+  appliedPlanTemplateCallIds.clear()
   const id = newSessionId()
   safeWrite(ACTIVE_KEY, id)
   activeSessionId.value = id
@@ -615,6 +693,7 @@ export function newChat() {
 export function switchToSession(id: string) {
   if (id === activeSessionId.value) return
   clearProposalTimers()
+  appliedPlanTemplateCallIds.clear()
   const persisted = readSession(id)
   safeWrite(ACTIVE_KEY, id)
   activeSessionId.value = id
@@ -654,6 +733,7 @@ export function continueChat(): void {
 
 export function clearCurrentSession() {
   clearProposalTimers()
+  appliedPlanTemplateCallIds.clear()
   if (chatInstance) chatInstance.messages = []
   proposals.value = {}
   asks.value = {}

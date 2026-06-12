@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { proposals, lastNavigation, sessionRouteContext } from '../src/chat-session'
+import { proposals, lastNavigation, sessionRouteContext, scanForPlanTemplateOutput } from '../src/chat-session'
+import type { UIMessage } from 'ai'
 
 describe('navigate_to short-circuit', () => {
   beforeEach(() => {
@@ -121,6 +122,60 @@ describe('proposal timers cleared on session switch', () => {
     // Advance well past the 10-minute fallback
     vi.advanceTimersByTime(11 * 60 * 1000)
     expect(addToolResult).not.toHaveBeenCalled()
+  })
+})
+
+describe('scanForPlanTemplateOutput (server-tool output interception)', () => {
+  const planPart = (toolCallId: string, output: unknown, state = 'output-available') => ({
+    type: 'tool-select_plan_template',
+    state,
+    toolCallId,
+    output,
+  })
+  const msg = (parts: unknown[]): UIMessage =>
+    ({ id: 'm1', role: 'assistant', parts } as unknown as UIMessage)
+
+  const payload = {
+    scenario: 'standalone-concept-set',
+    title: 'Create a concept set',
+    steps: [{ id: 's1', label: 'A', linkedProposalKind: null, required: true }],
+  }
+
+  it('applies the gated plan from a select_plan_template output part', () => {
+    const seen = new Set<string>()
+    const apply = vi.fn()
+    scanForPlanTemplateOutput([msg([planPart('tc-1', payload)])], seen, apply)
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledWith(payload)
+    expect(seen.has('tc-1')).toBe(true)
+  })
+
+  it('dedupes — does not re-apply the same toolCallId on a repeated scan', () => {
+    const seen = new Set<string>()
+    const apply = vi.fn()
+    const messages = [msg([planPart('tc-1', payload)])]
+    scanForPlanTemplateOutput(messages, seen, apply)
+    scanForPlanTemplateOutput(messages, seen, apply)
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores parts that are not yet output-available', () => {
+    const apply = vi.fn()
+    scanForPlanTemplateOutput([msg([planPart('tc-1', payload, 'input-available')])], new Set(), apply)
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('ignores output without a steps array', () => {
+    const apply = vi.fn()
+    scanForPlanTemplateOutput([msg([planPart('tc-1', { error: 'unknown scenario' })])], new Set(), apply)
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('ignores non-plan-template tool parts', () => {
+    const apply = vi.fn()
+    const part = { type: 'tool-create_plan', state: 'output-available', toolCallId: 'x', output: payload }
+    scanForPlanTemplateOutput([msg([part])], new Set(), apply)
+    expect(apply).not.toHaveBeenCalled()
   })
 })
 
