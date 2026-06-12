@@ -156,6 +156,17 @@ function domainToCriteriaType(domain: string | undefined): string {
   }
 }
 
+function toEventWindow(
+  w: { startDays?: number | null; endDays?: number | null } | undefined,
+): Record<string, unknown> | undefined {
+  if (!w) return undefined
+  const win = (d: number | null | undefined, defAfter: boolean) =>
+    d === null
+      ? { days: null, beforeAfter: defAfter ? 'AFTER' : 'BEFORE', referencePoint: 'INDEX_START' }
+      : { days: Math.abs(d ?? 0), beforeAfter: (d ?? 0) < 0 ? 'BEFORE' : 'AFTER', referencePoint: 'INDEX_START' }
+  return { startWindow: win(w.startDays ?? null, false), endWindow: win(w.endDays ?? 0, true) }
+}
+
 function deriveRuleName(items: CriterionArgs[], group?: string, logic?: string): string {
   const names = items
     .map(it => (typeof it.conceptName === 'string' ? it.conceptName : null))
@@ -669,10 +680,14 @@ export function proposalFromToolCall(
       const finalEvents = isExcludeGroup
         ? events.map(e => ({ ...e, cardinality: ZERO_OCCURRENCE_CARDINALITY }))
         : events
+      const tw = toEventWindow(r.temporalWindow)
+      const windowedEvents = tw
+        ? finalEvents.map(e => ({ ...e, temporalWindow: tw }))
+        : finalEvents
       const group: Record<string, unknown> = {
         id: uid(),
         logicType: isExcludeGroup ? 'ALL' : (r.logicType ?? 'ALL'),
-        events: finalEvents,
+        events: windowedEvents,
       }
       if (!isExcludeGroup && r.count !== undefined) group.count = r.count
       const ruleName =

@@ -38,10 +38,9 @@
 
 (def ^:private temporal-window-schema
   {:type "object"
-   :properties {:priorStart {:type "number"}
-                :priorEnd   {:type "number"}
-                :postStart  {:type "number"}
-                :postEnd    {:type "number"}}})
+   :description "Optional temporal window for the criteria, relative to the index (cohort entry) start date."
+   :properties {:startDays {:type ["number" "null"] :description "Window start in days vs index start: negative = before index, 0 = at index, null = all time prior."}
+                :endDays   {:type ["number" "null"] :description "Window end in days vs index start: positive = after index, null = all time after. Default 0 (index date)."}}})
 
 (def ^:private agent-visible-views
   "Route names the agent may navigate to — the agentVisible=true entries of
