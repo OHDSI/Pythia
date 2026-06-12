@@ -37,8 +37,8 @@
 
 (def schema
   {:type "object"
-   :properties {:query {:type "string"}
-                :k {:type "number" :description "Number of passages to return (1-10, default 3)."}}
+   :properties {:query {:type "string" :description "Methodology question or topic, e.g. \"exit strategy continuous drug exposure\" or \"index date washout\"."}
+                :k {:type "number" :description "Number of passages to return (default 3, max 10)."}}
    :required ["query"]})
 
 (defn- snippet
@@ -96,6 +96,6 @@
 
 (def tool
   {:name "search_ohdsi_book"
-   :description "Search the Book of OHDSI (2nd Edition) for methodology guidance (washout, censoring, cohort exit strategies, study design, phenotype evaluation). Returns up to k passages (default 3) with chapter/section, a relevant snippet, a BM25 relevance score, and a source URL. Use this to ground recommendations in canonical OHDSI text rather than model recall."
+   :description "Search The Book of OHDSI (2nd Edition) for canonical guidance on OMOP CDM, cohort definition, study design, washout/exit/censoring patterns, vocabularies, and methodology. Returns BM25-ranked passages with chapter, section, snippet, and URL. Call this for ANY methodology question (\"how do I handle washout\", \"what's the OHDSI exit-strategy convention\", \"explain incidence rate denominators\") and cite the chapter/section in your reply."
    :schema schema
    :run run})

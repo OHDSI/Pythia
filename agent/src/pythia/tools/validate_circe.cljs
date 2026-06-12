@@ -176,6 +176,6 @@
 
 (def tool
   {:name "validate_circe"
-   :description "Validate a draft Circe CohortExpression by compiling it to SQL. Pass `:expression` (the Circe JSON object or string). Returns `{:ok true :sql <rendered SQL>}` on success or `{:ok false :errors [...]}` if the expression is malformed or fails to compile. Call this BEFORE proposing a non-trivial cohort so you can catch errors and self-correct."
+   :description "Compile a draft Circe cohort-expression JSON to SQL via WebAPI to confirm it is structurally valid. Call this BEFORE issuing a non-trivial cohort proposal so you can self-correct compile errors. Returns {:ok true :sql \"<rendered SQL>\"} on success or {:ok false :errors [...]} on failure. On error, fix the expression and re-validate (max 2 retries) before proposing. Pass `expression` as either a JSON string or a parsed object."
    :schema schema
    :run run})

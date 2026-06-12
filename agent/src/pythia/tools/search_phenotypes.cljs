@@ -21,7 +21,7 @@
 
 (def schema
   {:type "object"
-   :properties {:query {:type "string"}}
+   :properties {:query {:type "string" :description "Clinical condition or phenotype to search for"}}
    :required ["query"]})
 
 (defn- match-all-terms?
@@ -86,6 +86,6 @@
 
 (def tool
   {:name "search_phenotypes"
-   :description "Search published phenotype definitions for a clinical condition across PheKB and the OHDSI Forums. Returns up to 5 hits per source (title, description, URL). Use when looking for existing algorithm definitions or community discussion to base a cohort on."
+   :description "Search PheKB, OHDSI Forums, and the OHDSI Phenotype Library (v3.37.0) for validated phenotype definitions. Call after search_existing_cohorts when no existing cohort matches. Each Phenotype Library hit includes a `:circe-summary` (entry domains, # primary criteria, # inclusion rules, concept-set list, exit strategy) — use it to mimic canonical OHDSI patterns directly. When a hit is the right template and you want the full Circe JSON to copy concept-set IDs, criteria shapes, or temporal logic verbatim, follow up with `get_reference_phenotype(cohortId)`."
    :schema schema
    :run run})

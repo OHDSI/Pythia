@@ -18,8 +18,10 @@
 
 (def schema
   {:type "object"
-   :properties {:query {:type "string"}
-                :num_results {:type "number"}}
+   :properties {:query {:type "string"
+                        :description "What to search for. Use specific terms; for clinical phenotype validation include 'OHDSI', 'OMOP', 'PheKB', or 'phenotype' to bias toward relevant sources."}
+                :num_results {:type "number"
+                              :description "Number of results to return (default 5, max 10)."}}
    :required ["query"]})
 
 (defn- strip-tags [s]
@@ -82,6 +84,6 @@
 
 (def tool
   {:name "web_search"
-   :description "General web search via DuckDuckGo Lite (no API key). Use for questions outside the OMOP/OHDSI corpus — recent guidance, drug references, definitions, news. Returns up to 10 results with title, URL, and snippet."
+   :description "Search the open web (DuckDuckGo) for clinical guidelines, published literature, OHDSI documentation, drug-class definitions, etc. Use sparingly: prefer local lookups (search_concepts, search_phenotypes, search_existing_*) for things in the OMOP vocabulary or already-saved artifacts. Returns top-N results with title, URL, and snippet."
    :schema schema
    :run run})

@@ -17,7 +17,7 @@
 
 (def schema
   {:type "object"
-   :properties {:cohortId {:type "number"}}
+   :properties {:cohortId {:type "number" :description "Phenotype Library cohort id (the numeric `:cohort-id` returned in a search_phenotypes hit)."}}
    :required ["cohortId"]})
 
 (defn- parse-id [raw]
@@ -53,6 +53,6 @@
 
 (def tool
   {:name "get_reference_phenotype"
-   :description "Fetch the full Circe JSON definition of an OHDSI Phenotype Library cohort by numeric cohortId (pinned to library v3.37.0). Returns the cohort body to mimic canonical patterns. Use after search_phenotypes surfaces a Phenotype Library hit."
+   :description "Fetch the full Circe JSON body of a single OHDSI Phenotype Library cohort by id. Use this AFTER search_phenotypes returns a hit you want to study or mirror in detail (concept-set members, criteria shapes, temporal windows). Returns the parsed Circe expression plus the catalog metadata (status, tags, contributors)."
    :schema schema
    :run run})
