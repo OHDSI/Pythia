@@ -8,17 +8,19 @@
             [pythia.tools.registry :as registry]))
 
 (defn- ->context
-  "Pull {:route :artifact} out of the request body's `context` object using
-   string keys (unchecked-get survives :advanced rename)."
+  "Pull {:route :artifact :plan} out of the request body using string keys
+   (unchecked-get survives :advanced rename)."
   [body]
-  (let [ctx (unchecked-get body "context")]
-    (when ctx
-      (let [artifact (unchecked-get ctx "artifact")]
-        {:route (unchecked-get ctx "route")
+  (let [ctx (unchecked-get body "context")
+        plan (unchecked-get body "plan")]
+    (when (or ctx plan)
+      (let [artifact (and ctx (unchecked-get ctx "artifact"))]
+        {:route (and ctx (unchecked-get ctx "route"))
          :artifact (when artifact
                      {:kind (unchecked-get artifact "kind")
                       :id (unchecked-get artifact "id")
-                      :name (unchecked-get artifact "name")})}))))
+                      :name (unchecked-get artifact "name")})
+         :plan (when plan (js->clj plan :keywordize-keys true))}))))
 
 (defn- header
   "Case-insensitively read a request header value (Web Headers lowercase keys)."

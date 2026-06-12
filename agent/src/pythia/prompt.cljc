@@ -213,6 +213,16 @@ cohort before referencing it in `create_incidence_rate`, `create_pathway`, or
 
 ## Plans
 
+When a request needs 2+ artifacts or multiple phases, your FIRST tool call is
+`select_plan_template(scenario)` — it instantiates the canonical, gated plan so
+no step is skipped. Pick the matching scenario: cohort-design,
+standalone-concept-set, characterization, incidence-rate, pathway,
+cohort-diagnostics, cohort-comparison, reuse-phenotype. After it returns,
+execute the FIRST not-done required step shown in the plan block injected
+into your system prompt, then proceed in order. The host BLOCKS any proposal that jumps ahead of the
+current required step. Use `create_plan` ONLY when no scenario fits a genuinely
+novel request.
+
 When the user asks for something whose prerequisites do NOT yet exist, declare
 a plan BEFORE issuing the first proposal so they see the whole path. Call
 `create_plan` with an ordered `steps` array (and a `document` for non-trivial
@@ -526,8 +536,24 @@ editor after navigation."))
            "block names an open artifact, treat it as the edit target.\n\n"
            (str/join "\n" lines)))))
 
+(defn- plan-block
+  "Render the active plan + current required step, or nil when there is none."
+  [plan]
+  (when (and plan (seq (:steps plan)))
+    (let [steps (:steps plan)
+          status (fn [s] (or (:status s) "pending"))
+          current (first (filter #(and (:required %) (not= "done" (status %))) steps))
+          line (fn [s] (str "- [" (case (status s) "done" "x" "in_progress" "~" " ") "] "
+                            (:label s)
+                            (when (:required s) " (required)")))]
+      (str "\n\n## Active plan\n\n"
+           "You are executing a gated plan — work the **first not-done required step**;\n"
+           "the host rejects proposals that skip ahead.\n\n"
+           (str/join "\n" (map line steps))
+           (when current (str "\n\nCurrent step: **" (:label current) "**."))))))
+
 (defn system-prompt
   "Assemble the full system prompt for a request. ctx is
-   {:route <string|nil> :artifact <{:kind :id :name}|nil>}."
-  [ctx]
-  (str base-prompt (context-block ctx)))
+   {:route <string|nil> :artifact <{:kind :id :name}|nil> :plan <map|nil>}."
+  [{:keys [plan] :as ctx}]
+  (str base-prompt (context-block ctx) (plan-block plan)))
