@@ -521,7 +521,13 @@ export function proposalFromToolCall(
         }
       }
       if (args.group === 'exclusion') {
-        return { kind: 'addCensoringCriterion', event }
+        const excEvent = { ...(event as Record<string, unknown>),
+          cardinality: { type: 'EXACTLY', count: 0, countingMethod: 'ALL' } }
+        return {
+          kind: 'addInclusionRule',
+          rule: { id: uid(), name: args.conceptName ? `Exclude: ${args.conceptName}` : 'Exclusion',
+            criteriaGroups: [{ id: uid(), logicType: 'ALL', events: [excEvent] }] },
+        }
       }
       return { kind: 'addEntryEvent', event }
     }
@@ -658,12 +664,17 @@ export function proposalFromToolCall(
       const r = args as InclusionRuleArgs
       const events = (r.events ?? []).map(buildEventFromCriterion).filter(Boolean)
       if (events.length === 0) return null
+      const isExcludeGroup = r.logicType === 'AT_MOST' && (r.count ?? 0) === 0
+      const finalEvents = isExcludeGroup
+        ? events.map(e => ({ ...(e as Record<string, unknown>),
+            cardinality: { type: 'EXACTLY', count: 0, countingMethod: 'ALL' } }))
+        : events
       const group: Record<string, unknown> = {
         id: uid(),
-        logicType: r.logicType ?? 'ALL',
-        events,
+        logicType: isExcludeGroup ? 'ALL' : (r.logicType ?? 'ALL'),
+        events: finalEvents,
       }
-      if (r.count !== undefined) group.count = r.count
+      if (!isExcludeGroup && r.count !== undefined) group.count = r.count
       const ruleName =
         (typeof r.name === 'string' && r.name.trim()) ||
         deriveRuleName(r.events ?? [], undefined, r.logicType === 'ANY' ? 'OR' : 'AND')
