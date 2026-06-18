@@ -956,8 +956,8 @@ onMounted(async () => {
   word-break: break-word;
 }
 .cohort-agent-chat__bubble--user {
-  background: #1f425a;          /* Atlas3 primary */
-  color: #ffffff;
+  background: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
 }
 .cohort-agent-chat__bubble--assistant,
 .cohort-agent-chat__bubble--system {
@@ -991,7 +991,7 @@ onMounted(async () => {
   padding: 0;
 }
 .cohort-agent-chat__markdown :deep(a) {
-  color: #1f425a;
+  color: rgb(var(--v-theme-primary));
   text-decoration: underline;
 }
 .cohort-agent-chat__markdown :deep(h1),
@@ -1006,7 +1006,7 @@ onMounted(async () => {
   font-size: 1.1em;
   vertical-align: -0.15em;
   margin: 0 0.15em 0 0.05em;
-  color: #1f425a;
+  color: rgb(var(--v-theme-primary));
 }
 .cohort-agent-chat__markdown :deep(blockquote) {
   border-left: 3px solid #cbd5e1;
