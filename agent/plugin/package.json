@@ -1,8 +1,19 @@
 {
-  "name": "@trexsql/agent",
+  "name": "@ohdsi/pythia-agent",
   "version": "0.0.1",
-  "private": true,
-  "description": "Pythia cohort design agent — mounted Deno function, served at /plugins/trexsql/agent/*",
+  "description": "Pythia cohort design agent — trex Deno function plugin, served at /agent (via /WebAPI/trexsql/agent or /d2e/agent)",
+  "files": [
+    "functions",
+    "package.json"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OHDSI/trex-dx.git",
+    "directory": "agent/plugin"
+  },
   "trex": {
     "functions": {
       "env": {
