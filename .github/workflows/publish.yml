@@ -1,0 +1,80 @@
+name: Publish Pythia packages
+
+# Publishes both Pythia artifacts to GitHub Packages under @ohdsi:
+#   - @ohdsi/pythia-plugin  (frontend: vite SystemJS bundle -> dist/)
+#   - @ohdsi/pythia-agent    (backend: shadow-cljs Deno fn -> agent/plugin/)
+# d2e installs them at image-build time (the atlas plugin pulls pythia-plugin
+# like @ohdsi/atlas3; the trex image pulls pythia-agent via PLUGINS_FROM_REGISTRY).
+#
+# Branch builds publish a prerelease version under the `develop` dist-tag; a
+# `v*` git tag publishes that exact version under `latest`.
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pythia-plugin       # frontend
+            build_dir: .
+            build_cmd: npm run build
+            publish_dir: .
+          - name: pythia-agent        # backend (shadow-cljs needs a JDK)
+            build_dir: agent
+            build_cmd: npm run dist
+            publish_dir: agent/plugin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@ohdsi'
+
+      # shadow-cljs (agent build) needs Java; harmless for the frontend build.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build ${{ matrix.name }}
+        working-directory: ${{ matrix.build_dir }}
+        run: |
+          npm ci
+          ${{ matrix.build_cmd }}
+
+      - name: Compute version + dist-tag
+        id: ver
+        working-directory: ${{ matrix.publish_dir }}
+        run: |
+          BASE="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            DIST_TAG="latest"
+          else
+            SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+            VERSION="${BASE}-${GITHUB_REF_NAME//\//-}.${GITHUB_RUN_NUMBER}.g${SHORT_SHA}"
+            DIST_TAG="${GITHUB_REF_NAME//\//-}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish ${{ matrix.name }}
+        working-directory: ${{ matrix.publish_dir }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+          npm publish --tag "${{ steps.ver.outputs.dist_tag }}"
