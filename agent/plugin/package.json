@@ -29,6 +29,11 @@
           "source": "/agent",
           "function": "/functions",
           "imports": "/functions/deno.json"
+        },
+        {
+          "source": "/plugins/trexsql/agent",
+          "function": "/functions",
+          "imports": "/functions/deno.json"
         }
       ]
     }
