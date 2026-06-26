@@ -53,3 +53,26 @@
   (let [steps (:steps (t/plan-payload "standalone-concept-set"))
         cs (first (filter #(= "create-concept-set" (:id %)) steps))]
     (is (= "createStandaloneConceptSet" (:linkedProposalKind cs)))))
+
+(deftest every-template-has-a-rich-document
+  ;; Plans must carry a sectioned "Plan details" document, not a one-liner.
+  (doseq [scenario (keys t/templates)]
+    (let [doc (:document (t/plan-payload scenario))]
+      (is (string? doc) (str scenario " is missing a :document"))
+      (is (re-find #"## Goal" doc)
+          (str scenario " document needs a ## Goal section"))
+      (is (re-find #"## Success criteria" doc)
+          (str scenario " document needs a ## Success criteria section")))))
+
+(deftest simple-scenarios-are-single-step
+  ;; Simple flows render as one milestone todo, not a chain of micro-steps.
+  (doseq [scenario ["standalone-concept-set" "cohort-comparison"
+                    "reuse-phenotype" "cohort-diagnostics"]]
+    (is (= 1 (count (:steps (t/plan-payload scenario))))
+        (str scenario " should be a single milestone step"))))
+
+(deftest every-step-carries-a-description
+  (doseq [scenario (keys t/templates)]
+    (doseq [s (:steps (t/plan-payload scenario))]
+      (is (and (string? (:description s)) (seq (:description s)))
+          (str scenario "/" (:id s) " step is missing a :description")))))

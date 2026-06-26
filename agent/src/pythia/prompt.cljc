@@ -230,22 +230,25 @@ flows — see below), then proceed with the first step's tool calls in the same
 turn. The plan renders as a pinned card at the top of the chat panel; each
 step shows its status and updates live.
 
-**Always pass a `document`** when the request needs 3+ artifacts or multiple
-phases (e.g. cohort + concept set + analysis; treatment-pattern study with
-stratification; phenotype validation across multiple sources). The document
-is 3-5 sentences of markdown covering:
+**Always pass a `document`** for any multi-phase plan (anything beyond a single
+artifact). Make it genuinely useful — a short markdown section per heading below,
+not one packed sentence. Write it so a reviewer who skips the steps still
+understands what we're building and why it's correct:
 
-- **Goal** — what we're building and why.
-- **Approach** — the high-level steps (mirrors the steps array but in
-  prose form).
-- **Prerequisites / constraints** — required inputs, vocabulary or
-  data-source assumptions, OHDSI conventions in play.
-- **Success criteria** — how we'll know the analysis is done and correct.
+- `## Goal` — what we're building and the clinical/analytic question behind it.
+- `## Approach` — how we'll get there in prose: the reuse-first check, the
+  artifacts to create and in what order, and the key decisions (e.g. where
+  descendants apply, time-at-risk choices).
+- `## Prerequisites & constraints` — required inputs, vocabulary / data-source
+  assumptions, and the OHDSI conventions in play (Standard Concepts, saved-cohort
+  references, etc.).
+- `## Success criteria` — concretely how we'll know the result is done and correct.
 
-Skip the `document` for trivial 1-2 step plans (e.g. \"create a concept set
-then open it\"). The chat panel renders the document as a collapsed
-\"Plan details\" section above the steps; users expand it when they want
-context, and skim the steps when they don't.
+When you instantiate a template via `select_plan_template`, the canonical
+`document` is already rich — keep it; only extend it with specifics of THIS
+request (the actual cohort, concepts, windows). The chat panel renders the
+document as a collapsed \"Plan details\" section above the steps; users expand it
+for context and skim the steps otherwise.
 
 Trigger cases — call `create_plan` when:
 
@@ -257,11 +260,23 @@ Trigger cases — call `create_plan` when:
 - The user asks for an analysis that needs a concept set they haven't created
   yet → plan: create concept set → use it in cohort/analysis.
 - More generally: any request that requires 2+ distinct artifacts (cohort,
-  concept set, feature analysis, etc.) to come into existence. Single-step
-  edits to an already-open cohort do NOT need a plan.
+  concept set, feature analysis, etc.) to come into existence.
+
+Do NOT plan trivial work. A single-artifact request (one concept set, one
+cohort) or a single edit to an already-open cohort needs NO plan — go straight
+to the proposal. Prefer `select_plan_template` over hand-rolling `create_plan`;
+only fall back to `create_plan` for a genuinely novel multi-artifact flow.
 
 Step authoring rules:
 
+- Steps are MILESTONE-LEVEL, not micro-actions. One step per artifact or
+  per proposal you will issue — name the outcome (\"Create the statins concept
+  set\"), not the keystrokes. Never split one proposal into several todos, and
+  fold prep/search work into the step it serves rather than listing it
+  separately. A simple request should yield ONE step (or none).
+- Give each step a one-line `description` adding the clinical/OHDSI specifics
+  (concepts, windows, constraints) — the label says what, the description says
+  the how/why.
 - Steps must be ordered: each step's prerequisite is the step above it.
 - Use stable, lowercase-kebab `id`s (e.g. `create-concept-set`,
   `build-cohort`, `run-incidence-rate`).
