@@ -3,7 +3,7 @@ import {
   proposals, lastNavigation, sessionRouteContext,
   scanForPlanTemplateOutput, collectPlanTemplateCallIds,
   buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
-  acceptProposal, recordProposal, setHostBridge,
+  acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
 } from '../src/chat-session'
 import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
@@ -447,5 +447,75 @@ describe('acceptProposal (shared accept pipeline)', () => {
     const addToolResult = vi.fn()
     await acceptProposal('does-not-exist', { addToolResult })
     expect(addToolResult).not.toHaveBeenCalled()
+  })
+})
+
+describe('recordAndMaybeAutoAccept', () => {
+  const fakeBus = () => ({
+    send: vi.fn(),
+    request: vi.fn(),
+    subscribe: vi.fn(),
+  })
+
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+    setAutoApproveProposals(false)
+  })
+
+  afterEach(() => {
+    setAutoApproveProposals(false)
+  })
+
+  it('leaves the proposal pending when auto-approve is off', () => {
+    setHostBridge({ bus: fakeBus(), applyProposal: vi.fn() })
+    recordAndMaybeAutoAccept(
+      { toolCallId: 'tc-raa-1', toolName: 'add_criteria', input: {
+        name: 'Test', group: 'inclusion', logic: 'AND',
+        items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+      } },
+      { addToolResult: () => {} }
+    )
+    expect(proposals.value['tc-raa-1'].status).toBe('pending')
+  })
+
+  it('immediately resolves as accepted when auto-approve is on', async () => {
+    const bus = fakeBus()
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    setAutoApproveProposals(true)
+    const addToolResult = vi.fn()
+    recordAndMaybeAutoAccept(
+      { toolCallId: 'tc-raa-2', toolName: 'add_criteria', input: {
+        name: 'Test', group: 'inclusion', logic: 'AND',
+        items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+      } },
+      { addToolResult }
+    )
+    // acceptProposal awaits nothing on this non-ID-returning path
+    // synchronously up to the bus.send call, but is still an async fn —
+    // flush microtasks before asserting.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(proposals.value['tc-raa-2'].status).toBe('accepted')
+    expect(addToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'tc-raa-2', output: expect.objectContaining({ decision: 'accepted' }) })
+    )
+  })
+
+  it('does not retroactively accept a proposal recorded before the toggle flips on', async () => {
+    setHostBridge({ bus: fakeBus(), applyProposal: vi.fn() })
+    recordAndMaybeAutoAccept(
+      { toolCallId: 'tc-raa-3', toolName: 'add_criteria', input: {
+        name: 'Test', group: 'inclusion', logic: 'AND',
+        items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+      } },
+      { addToolResult: () => {} }
+    )
+    expect(proposals.value['tc-raa-3'].status).toBe('pending')
+
+    setAutoApproveProposals(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(proposals.value['tc-raa-3'].status).toBe('pending')
   })
 })

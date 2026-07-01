@@ -417,6 +417,23 @@ export function recordProposal(
   proposalTimers.set(toolCall.toolCallId, t)
 }
 
+// Called from onToolCall for every client-side proposal tool. Records the
+// proposal exactly as before; if autoApproveProposals is on, immediately
+// resolves it too — same code path a manual click takes (acceptProposal),
+// just triggered synchronously instead of waiting on the user. Does NOT
+// retroactively touch proposals already recorded before the toggle flips
+// on — this check only runs at record time.
+export function recordAndMaybeAutoAccept(
+  toolCall: { toolCallId: string; toolName: string; input: unknown },
+  deps: ProposalResolver,
+  groupInfo?: { groupId?: string; groupIndex?: number }
+): void {
+  recordProposal(toolCall, deps, groupInfo)
+  if (autoApproveProposals.value) {
+    void acceptProposal(toolCall.toolCallId, deps)
+  }
+}
+
 export function resolveProposal(
   toolCallId: string,
   decision: 'accepted' | 'rejected',
@@ -772,13 +789,15 @@ export function getChatInstance(): Chat<UIMessage> {
           }
         }
         const { groupId, groupIndex } = locateGroup(chat.messages, toolCall.toolCallId)
-        recordProposal(
+        recordAndMaybeAutoAccept(
           { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, input: toolCall.input },
           { addToolResult: (r) => chat.addToolResult(r) },
           { groupId, groupIndex }
         )
-        // No auto-stub — accept/reject in ChatPanel calls resolveProposal,
-        // which sends the real outcome as the tool-result.
+        // If autoApproveProposals is off, this only records — accept/reject
+        // in ChatPanel calls resolveProposal, which sends the real outcome
+        // as the tool-result. If auto-approve is on, recordAndMaybeAutoAccept
+        // also resolves it immediately as accepted.
       }
     },
   })
