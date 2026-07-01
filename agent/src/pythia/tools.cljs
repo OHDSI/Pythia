@@ -9,6 +9,7 @@
             [pythia.tools.search-pathways :as search-pathways]
             [pythia.tools.verify-concept-mapping :as verify-concept-mapping]
             [pythia.tools.get-artifact :as get-artifact]
+            [pythia.tools.review-artifact :as review-artifact]
             [pythia.tools.get-cohort-generation-summary :as get-cohort-generation-summary]
             [pythia.tools.summarise-attrition :as summarise-attrition]
             [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
@@ -34,6 +35,7 @@
    search-pathways/tool
    verify-concept-mapping/tool
    get-artifact/tool
+   review-artifact/tool
    get-cohort-generation-summary/tool
    summarise-attrition/tool
    get-cohort-overlap/tool
