@@ -123,7 +123,43 @@
    {:label "Reuse a published phenotype"
     :description "Find the published phenotype, load its reference Circe definition, and validate if transplanted."
     :tools ["search_phenotypes" "get_reference_phenotype" "validate_circe"] :proposal-kind nil :route nil
-    :success "reference Circe loaded (and validated if transplanted)"}})
+    :success "reference Circe loaded (and validated if transplanted)"}
+
+   "review-plan"
+   {:label "Review the plan before executing it"
+    :description "Re-read the plan against the original request: check for gaps, risks, and structural completeness before starting work."
+    :tools ["review_plan"] :proposal-kind nil :route nil
+    :success "the plan was reviewed and any gaps/risks were addressed before executing"}
+
+   "review-cohort"
+   {:label "Review the saved cohort"
+    :description "Fetch the saved cohort's full definition and check it against the original clinical intent before declaring it done."
+    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :success "the cohort definition was reviewed against the stated intent"}
+
+   "review-concept-set"
+   {:label "Review the concept set"
+    :description "Fetch the saved concept set's full definition and check it against the original clinical intent."
+    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :success "the concept set was reviewed against the stated intent"}
+
+   "review-characterization"
+   {:label "Review the characterization"
+    :description "Fetch the characterization's full definition and check it references the right cohort(s) and feature analysis/es."
+    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :success "the characterization was reviewed against the stated intent"}
+
+   "review-pathway"
+   {:label "Review the pathway analysis"
+    :description "Fetch the pathway analysis's full definition and check it references the right target and event cohorts."
+    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :success "the pathway analysis was reviewed against the stated intent"}
+
+   "review-incidence-rate"
+   {:label "Review the incidence-rate analysis"
+    :description "Fetch the incidence-rate analysis's full definition and check target, outcome, and time-at-risk are set as intended."
+    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :success "the incidence-rate analysis was reviewed against the stated intent"}})
 
 (defn skill [id] (get skills id))
 (defn skill-ids [] (set (keys skills)))

@@ -10,7 +10,7 @@
 
 (def cljs-extension-names
   "Tools exposed by the CLJS Pythia agent beyond the bao JVM parity baseline."
-  #{"save_cohort" "select_plan_template"})
+  #{"save_cohort" "select_plan_template" "review_plan" "review_artifact"})
 
 (def jvm-tool-names
   "Exact `:name` of every entry in JVM trexsql.agent.tools/tool-specs."
@@ -68,7 +68,7 @@
       (is (empty? (set/difference jvm-tool-names exposed))
           (str "missing CLJS names: " (set/difference jvm-tool-names exposed))))
     (is (= expected exposed))
-    (is (= 42 (count exposed)))))
+    (is (= 44 (count exposed)))))
 
 (deftest no-duplicate-names
   (let [names (map :name tools/all)]

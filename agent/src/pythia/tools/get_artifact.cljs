@@ -1,7 +1,10 @@
 (ns pythia.tools.get-artifact
   "get_artifact tool — fetch the full editable content of a saved artifact by
-   kind + id. Port of the JVM trexsql.agent.tools.get-artifact."
+   kind + id. Port of the JVM trexsql.agent.tools.get-artifact. The
+   kind -> WebAPI path table lives in pythia.artifacts, shared with
+   review_artifact."
   (:require [clojure.string :as str]
+            [pythia.artifacts :as artifacts]
             [pythia.webapi :as webapi]))
 
 (def schema
@@ -14,18 +17,10 @@
                        :description "Artifact id. For 'open artifact' use the id from the current-context block; for cross-referenced artifacts use the id from a search_existing_* result."}}
    :required ["kind" "id"]})
 
-(def ^:private kind->path
-  {"cohort"           (fn [id] (str "/cohortdefinition/" id))
-   "concept_set"      (fn [id] (str "/conceptset/" id "/expression"))
-   "feature_analysis" (fn [id] (str "/feature-analysis/" id))
-   "characterization" (fn [id] (str "/cohort-characterization/" id "/design"))
-   "pathway"          (fn [id] (str "/pathway-analysis/" id))
-   "incidence_rate"   (fn [id] (str "/ir/" id))})
-
 (defn run [args ctx]
   (let [kind (str (or (:kind args) (get args "kind")))
         id (or (:id args) (get args "id"))
-        path-fn (kind->path kind)
+        path-fn (artifacts/kind->path kind)
         auth (:auth ctx)]
     (cond
       (nil? path-fn)

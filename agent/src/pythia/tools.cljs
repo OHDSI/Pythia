@@ -9,6 +9,7 @@
             [pythia.tools.search-pathways :as search-pathways]
             [pythia.tools.verify-concept-mapping :as verify-concept-mapping]
             [pythia.tools.get-artifact :as get-artifact]
+            [pythia.tools.review-artifact :as review-artifact]
             [pythia.tools.get-cohort-generation-summary :as get-cohort-generation-summary]
             [pythia.tools.summarise-attrition :as summarise-attrition]
             [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
@@ -20,6 +21,7 @@
             [pythia.tools.validate-circe :as validate-circe]
             [pythia.tools.search-ohdsi-book :as search-ohdsi-book]
             [pythia.tools.select-plan-template :as select-plan-template]
+            [pythia.tools.review-plan :as review-plan]
             [pythia.tools.client :as client]))
 
 (def server
@@ -33,6 +35,7 @@
    search-pathways/tool
    verify-concept-mapping/tool
    get-artifact/tool
+   review-artifact/tool
    get-cohort-generation-summary/tool
    summarise-attrition/tool
    get-cohort-overlap/tool
@@ -43,7 +46,8 @@
    get-reference-phenotype/tool
    validate-circe/tool
    search-ohdsi-book/tool
-   select-plan-template/tool])
+   select-plan-template/tool
+   review-plan/tool])
 
 (def all
   "Every tool exposed to Bedrock: server tools (with :run) + client-side

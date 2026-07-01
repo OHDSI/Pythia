@@ -28,11 +28,15 @@
   (.. request -headers (get k)))
 
 (defn- ->tool-ctx
-  "Per-request tool context: forward the end user's bearer and resolve the
-   vocabulary source key (request body `sourceKey`, else EUNOMIA demo source)."
-  [^js request body]
+  "Per-request tool context: forward the end user's bearer, resolve the
+   vocabulary source key (request body `sourceKey`, else EUNOMIA demo
+   source), and thread the live plan through so tools like review_plan can
+   check it structurally — the same plan pythia.prompt renders into the
+   ## Active plan block."
+  [^js request body plan]
   {:auth (header request "authorization")
-   :source-key (or (unchecked-get body "sourceKey") "EUNOMIA")})
+   :source-key (or (unchecked-get body "sourceKey") "EUNOMIA")
+   :plan plan})
 
 (defn- error-response [e]
   (js/Response. (js/JSON.stringify #js {:error (str (or (.-message e) e))})
@@ -43,8 +47,9 @@
   (-> (.json request)
       (.then (fn [body]
                (let [messages (unchecked-get body "messages")
-                     system (prompt/system-prompt (->context body))
-                     ctx (->tool-ctx request body)
+                     context (->context body)
+                     system (prompt/system-prompt context)
+                     ctx (->tool-ctx request body (:plan context))
                      tool-obj (registry/tools-object tools/all ctx)]
                  (sdk/stream-chat messages system tool-obj))))
       (.catch error-response)))

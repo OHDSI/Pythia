@@ -65,11 +65,32 @@
           (str scenario " document needs a ## Success criteria section")))))
 
 (deftest simple-scenarios-are-single-step
-  ;; Simple flows render as one milestone todo, not a chain of micro-steps.
-  (doseq [scenario ["standalone-concept-set" "cohort-comparison"
-                    "reuse-phenotype" "cohort-diagnostics"]]
+  ;; Read-only/interpretation flows with no created artifact stay a single
+  ;; milestone todo. standalone-concept-set is NOT in this list — it now
+  ;; carries a trailing review-concept-set step (see
+  ;; standalone-concept-set-is-create-then-review below); reviewing the
+  ;; artifact is worth doing even for a single-artifact flow, so it's no
+  ;; longer single-step.
+  (doseq [scenario ["cohort-comparison" "reuse-phenotype" "cohort-diagnostics"]]
     (is (= 1 (count (:steps (t/plan-payload scenario))))
         (str scenario " should be a single milestone step"))))
+
+(deftest standalone-concept-set-is-create-then-review
+  ;; Two steps: create, then review the saved artifact. No review-plan step
+  ;; here — a single-step plan has no structure worth self-critiquing.
+  (let [ids (map :id (:steps (t/plan-payload "standalone-concept-set")))]
+    (is (= ["create-concept-set" "review-concept-set"] ids))))
+
+(deftest rich-templates-open-with-review-plan-and-close-with-review-artifact
+  (doseq [[scenario last-skill]
+          [["cohort-design" "review-cohort"]
+           ["characterization" "review-characterization"]
+           ["incidence-rate" "review-incidence-rate"]
+           ["pathway" "review-pathway"]]]
+    (testing scenario
+      (let [steps (:steps (t/plan-payload scenario))]
+        (is (= "review-plan" (:id (first steps))) (str scenario " must open with review-plan"))
+        (is (= last-skill (:id (last steps))) (str scenario " must close with " last-skill))))))
 
 (deftest every-step-carries-a-description
   (doseq [scenario (keys t/templates)]

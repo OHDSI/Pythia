@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { proposals, lastNavigation, sessionRouteContext, scanForPlanTemplateOutput, collectPlanTemplateCallIds } from '../src/chat-session'
+import {
+  proposals, lastNavigation, sessionRouteContext,
+  scanForPlanTemplateOutput, collectPlanTemplateCallIds,
+  buildAgentRequestBody,
+} from '../src/chat-session'
+import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
 
 describe('navigate_to short-circuit', () => {
@@ -283,5 +288,72 @@ describe('proposal tool defers tool-result', () => {
       toolCallId: 'tc-p3',
       output: expect.objectContaining({ decision: 'rejected' }),
     })
+  })
+})
+
+describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)', () => {
+  it('sends null context and null plan when nothing is open', () => {
+    const body = buildAgentRequestBody(null, null, null)
+    expect(body).toEqual({ sourceKey: null, routeContext: null, context: null, plan: null })
+  })
+
+  it('maps routeContext into the context shape entry.cljs expects', () => {
+    const body = buildAgentRequestBody('EUNOMIA', {
+      routeName: 'cohort-edit',
+      routeParams: { id: 42 },
+      artifact: { kind: 'cohort', id: 42, name: 'T2DM', summary: '3 rules' },
+    }, null)
+    expect(body.sourceKey).toBe('EUNOMIA')
+    expect(body.context).toEqual({
+      route: 'cohort-edit',
+      artifact: { kind: 'cohort', id: 42, name: 'T2DM' },
+    })
+  })
+
+  it('maps a null artifact through to context.artifact: null', () => {
+    const body = buildAgentRequestBody(null, { routeName: 'cohorts', routeParams: {}, artifact: null }, null)
+    expect(body.context).toEqual({ route: 'cohorts', artifact: null })
+  })
+
+  it('translates camelCase artifact kinds to the backend snake_case enum', () => {
+    const cases: Array<[string, string]> = [
+      ['conceptSet', 'concept_set'],
+      ['featureAnalysis', 'feature_analysis'],
+      ['incidenceRate', 'incidence_rate'],
+      ['characterization', 'characterization'],
+      ['pathway', 'pathway'],
+      ['cohort', 'cohort'],
+    ]
+    for (const [frontendKind, backendKind] of cases) {
+      const body = buildAgentRequestBody(null, {
+        routeName: 'x',
+        routeParams: {},
+        artifact: { kind: frontendKind as never, id: 1, name: 'n', summary: '' },
+      }, null)
+      expect(body.context?.artifact?.kind).toBe(backendKind)
+    }
+  })
+
+  it('trims the plan to document + minimal step fields', () => {
+    const plan: Plan = {
+      id: 'p1', title: 'x',
+      document: '## Goal\nBuild it.',
+      steps: [{ id: 's1', label: 'Step 1', status: 'pending', required: true }],
+      status: 'active', createdAt: 1, updatedAt: 1,
+    }
+    const body = buildAgentRequestBody(null, null, plan)
+    expect(body.plan).toEqual({
+      document: '## Goal\nBuild it.',
+      steps: [{ id: 's1', label: 'Step 1', status: 'pending', required: true }],
+    })
+  })
+
+  it("defaults a step's required to false when unset", () => {
+    const plan: Plan = {
+      id: 'p1', title: 'x', steps: [{ id: 's1', label: 'Step 1', status: 'pending' }],
+      status: 'active', createdAt: 1, updatedAt: 1,
+    }
+    const body = buildAgentRequestBody(null, null, plan)
+    expect(body.plan?.steps[0].required).toBe(false)
   })
 })

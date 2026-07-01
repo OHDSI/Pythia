@@ -22,12 +22,14 @@
                    "Entry and criteria should reflect the clinical intent, not just keyword matches.\n\n"
                    "## Success criteria\n"
                    "A complete cohort definition: entry event, inclusion/exclusion, and (where relevant) observation window and exit logic — ready to save and generate.")
-    :steps [{:skill "find-existing" :required? true :label "Check for a reusable cohort or library phenotype"}
+    :steps [{:skill "review-plan" :required? true}
+            {:skill "find-existing" :required? true :label "Check for a reusable cohort or library phenotype"}
             {:skill "draft-concept-set-spec" :required? true}
             {:skill "set-entry-event" :required? true}
             {:skill "add-inclusion-exclusion" :required? true}
             {:skill "set-observation-window" :required? false}
-            {:skill "set-exit-censor" :required? false}]}
+            {:skill "set-exit-censor" :required? false}
+            {:skill "review-cohort" :required? true}]}
 
    "standalone-concept-set"
    {:title "Create a concept set"
@@ -37,7 +39,8 @@
                    "Resolve each clinical term to a Standard concept, decide where include-descendants applies, then create and save the concept set.\n\n"
                    "## Success criteria\n"
                    "A named concept set saved on the server, built from Standard Concepts.")
-    :steps [{:skill "create-concept-set" :required? true}]}
+    :steps [{:skill "create-concept-set" :required? true}
+            {:skill "review-concept-set" :required? true}]}
 
    "characterization"
    {:title "Run a characterization"
@@ -49,10 +52,12 @@
                    "Characterizations reference only saved cohorts and saved feature analyses.\n\n"
                    "## Success criteria\n"
                    "A characterization over a saved cohort + feature analysis, ready to generate.")
-    :steps [{:skill "find-existing" :required? true}
+    :steps [{:skill "review-plan" :required? true}
+            {:skill "find-existing" :required? true}
             {:skill "build-cohort" :required? false}
             {:skill "create-feature-analysis" :required? true}
-            {:skill "run-characterization" :required? true}]}
+            {:skill "run-characterization" :required? true}
+            {:skill "review-characterization" :required? true}]}
 
    "incidence-rate"
    {:title "Run an incidence-rate analysis"
@@ -65,11 +70,13 @@
                    "Analyses reference only saved cohorts. Target and outcome must be distinct saved cohorts.\n\n"
                    "## Success criteria\n"
                    "A saved incidence-rate analysis with target + outcome and a time-at-risk window.")
-    :steps [{:skill "find-existing" :id "find-target" :label "Find or pick the target cohort" :required? true}
+    :steps [{:skill "review-plan" :required? true}
+            {:skill "find-existing" :id "find-target" :label "Find or pick the target cohort" :required? true}
             {:skill "build-cohort" :id "build-target" :label "Build & save the target cohort" :required? false}
             {:skill "find-existing" :id "find-outcome" :label "Find or pick the outcome cohort" :required? true}
             {:skill "build-cohort" :id "build-outcome" :label "Build & save the outcome cohort" :required? false}
-            {:skill "run-incidence-rate" :required? true}]}
+            {:skill "run-incidence-rate" :required? true}
+            {:skill "review-incidence-rate" :required? true}]}
 
    "pathway"
    {:title "Run a pathway analysis"
@@ -82,11 +89,13 @@
                    "Pathway analyses reference only saved cohorts; event cohorts define the steps to sequence.\n\n"
                    "## Success criteria\n"
                    "A saved pathway analysis over a target cohort and one or more event cohorts.")
-    :steps [{:skill "find-existing" :id "find-target" :label "Find or pick the target cohort" :required? true}
+    :steps [{:skill "review-plan" :required? true}
+            {:skill "find-existing" :id "find-target" :label "Find or pick the target cohort" :required? true}
             {:skill "build-cohort" :id "build-target" :label "Build & save the target cohort" :required? false}
             {:skill "find-existing" :id "find-events" :label "Find or pick the event cohorts" :required? true}
             {:skill "build-cohort" :id "build-events" :label "Build & save event cohort(s)" :required? false}
-            {:skill "run-pathway" :required? true}]}
+            {:skill "run-pathway" :required? true}
+            {:skill "review-pathway" :required? true}]}
 
    "cohort-diagnostics"
    {:title "Interpret cohort diagnostics"

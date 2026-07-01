@@ -16,3 +16,5 @@ coverage/
 /.playwright-mcp/
 /atlas-*.png
 docs/superpowers/
+
+.worktrees/
