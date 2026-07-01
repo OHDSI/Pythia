@@ -15,3 +15,17 @@
   (is (= (set (keys skills/skills)) (skills/skill-ids)))
   (is (some? (skills/skill "create-concept-set")))
   (is (nil? (skills/skill "nope"))))
+
+(deftest review-skills-are-registered
+  (doseq [id ["review-plan" "review-cohort" "review-concept-set"
+              "review-characterization" "review-pathway" "review-incidence-rate"]]
+    (testing id
+      (is (some? (skills/skill id)) (str id " must be defined"))
+      (is (nil? (:route (skills/skill id))))
+      (is (nil? (:proposal-kind (skills/skill id))))))
+  (is (= ["review_plan"] (:tools (skills/skill "review-plan"))))
+  (is (= ["review_artifact"] (:tools (skills/skill "review-cohort"))))
+  (is (= ["review_artifact"] (:tools (skills/skill "review-concept-set"))))
+  (is (= ["review_artifact"] (:tools (skills/skill "review-characterization"))))
+  (is (= ["review_artifact"] (:tools (skills/skill "review-pathway"))))
+  (is (= ["review_artifact"] (:tools (skills/skill "review-incidence-rate")))))
