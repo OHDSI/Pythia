@@ -12,6 +12,7 @@ import {
   acceptProposal,
   activeSessionId,
   asks,
+  autoApproveProposals,
   clearCurrentSession,
   continueChat,
   deleteChatSession,
@@ -24,6 +25,7 @@ import {
   sessionRouteContext,
   sessionSourceKey,
   sessionToken,
+  setAutoApproveProposals,
   setHostBridge,
   setTokenProvider,
   switchToSession,
@@ -385,6 +387,10 @@ function dismissAskLater(id: string, delay: number) {
   }, delay)
 }
 
+function onToggleAutoApprove() {
+  setAutoApproveProposals(!autoApproveProposals.value)
+}
+
 async function onAccept(id: string) {
   await acceptProposal(id, { addToolResult: (r) => chat.addToolResult(r) })
   dismissProposalLater(id, DISMISS_ACCEPTED_MS)
@@ -617,6 +623,16 @@ onMounted(async () => {
         {{ t('cohortAgent.title', 'Pythia AI Agent') }}
       </v-toolbar-title>
       <v-spacer />
+      <v-btn
+        :title="autoApproveProposals
+          ? t('cohortAgent.autoApproveOn', 'Auto-approve proposals: On')
+          : t('cohortAgent.autoApproveOff', 'Auto-approve proposals: Off')"
+        icon="mdi-flash-auto"
+        size="small"
+        :variant="autoApproveProposals ? 'tonal' : 'text'"
+        :color="autoApproveProposals ? 'primary' : undefined"
+        @click="onToggleAutoApprove"
+      />
       <v-menu
         location="bottom end"
         :close-on-content-click="false"
