@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   proposals, lastNavigation, sessionRouteContext,
   scanForPlanTemplateOutput, collectPlanTemplateCallIds,
-  buildAgentRequestBody,
+  buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
 } from '../src/chat-session'
 import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
@@ -355,5 +355,23 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
     }
     const body = buildAgentRequestBody(null, null, plan)
     expect(body.plan?.steps[0].required).toBe(false)
+  })
+})
+
+describe('autoApproveProposals persistence', () => {
+  const KEY = 'cohort-agent-plugin.autoApprove.v1'
+
+  afterEach(() => {
+    localStorage.removeItem(KEY)
+  })
+
+  it('setAutoApproveProposals updates the ref and persists to localStorage', () => {
+    setAutoApproveProposals(true)
+    expect(autoApproveProposals.value).toBe(true)
+    expect(JSON.parse(localStorage.getItem(KEY) ?? 'null')).toBe(true)
+
+    setAutoApproveProposals(false)
+    expect(autoApproveProposals.value).toBe(false)
+    expect(JSON.parse(localStorage.getItem(KEY) ?? 'null')).toBe(false)
   })
 })

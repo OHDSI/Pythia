@@ -217,6 +217,19 @@ function safeWrite(key: string, value: unknown) {
   }
 }
 
+// Global, independent of any specific proposal card and any single chat
+// session — a standing user preference for how much manual review they
+// want, mirroring Claude Code's own auto-accept-edits toggle. Persisted so
+// it survives reloads; NOT part of PersistedSession, since it isn't tied
+// to one chat's content.
+const AUTO_APPROVE_KEY = 'cohort-agent-plugin.autoApprove.v1'
+export const autoApproveProposals = ref<boolean>(safeRead<boolean>(AUTO_APPROVE_KEY, false))
+
+export function setAutoApproveProposals(value: boolean): void {
+  autoApproveProposals.value = value
+  safeWrite(AUTO_APPROVE_KEY, value)
+}
+
 function readIndex(): SessionMeta[] {
   return safeRead<SessionMeta[]>(INDEX_KEY, [])
 }
