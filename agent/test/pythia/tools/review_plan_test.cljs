@@ -81,7 +81,11 @@
     (is (empty? (:structural-issues out)))))
 
 (deftest args-plan-takes-priority-over-ctx-plan
-  (let [ctx-plan {:steps [{:id "stale"}]}
+  ;; ctx-plan has duplicate ids, which would show up in :structural-issues
+  ;; if it were wrongly selected instead of args-plan. A precedence
+  ;; regression back to `(or (:plan ctx) (:plan args))` would make this
+  ;; test fail.
+  (let [ctx-plan {:steps [{:id "dup"} {:id "dup"}]}
         args-plan {:document rich-doc :steps [{:id "a"} {:id "b"}]}
         out ((:run rp/tool)
              {:covers_request true :verdict "approved" :plan args-plan}
