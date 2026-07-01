@@ -10,7 +10,7 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai'
-import type { RouteContext } from './shell-bridge'
+import type { ArtifactKind, RouteContext } from './shell-bridge'
 import { proposalFromToolCall } from './shell-bridge'
 import type { MessageBus } from './main'
 import type { AskState, Plan, ProposalState } from './types'
@@ -493,6 +493,55 @@ export function collectPlanTemplateCallIds(messages: readonly unknown[]): string
   return ids
 }
 
+// Backend context/artifact `kind` enum is snake_case (get_artifact /
+// review_artifact schemas); the frontend's ArtifactKind is camelCase. Only
+// the 3 multi-word kinds actually differ — the rest are identity mappings,
+// listed explicitly so a typo here fails loudly instead of falling through.
+const ARTIFACT_KIND_TO_BACKEND: Record<ArtifactKind, string> = {
+  cohort: 'cohort',
+  conceptSet: 'concept_set',
+  featureAnalysis: 'feature_analysis',
+  characterization: 'characterization',
+  pathway: 'pathway',
+  incidenceRate: 'incidence_rate',
+}
+
+export interface AgentRequestBody {
+  sourceKey: string | null
+  routeContext: RouteContext | null
+  context: { route: string; artifact: { kind: string; id: number | string; name: string } | null } | null
+  plan: Plan | null
+}
+
+// Shapes the request body agent/src/pythia/entry.cljs expects
+// (`context: {route, artifact}`, `plan`) from the client-side refs that
+// already exist for other purposes (routeContext drives navigate_to undo;
+// activePlan drives the plan card). Exported and pure so it's testable
+// without constructing a Chat instance.
+export function buildAgentRequestBody(
+  sourceKey: string | null,
+  routeContext: RouteContext | null,
+  plan: Plan | null
+): AgentRequestBody {
+  return {
+    sourceKey,
+    routeContext,
+    context: routeContext
+      ? {
+          route: routeContext.routeName,
+          artifact: routeContext.artifact
+            ? {
+                kind: ARTIFACT_KIND_TO_BACKEND[routeContext.artifact.kind],
+                id: routeContext.artifact.id,
+                name: routeContext.artifact.name,
+              }
+            : null,
+        }
+      : null,
+    plan,
+  }
+}
+
 export function getChatInstance(): Chat<UIMessage> {
   if (chatInstance) return chatInstance
   const id = ensureActiveSession()
@@ -522,23 +571,7 @@ export function getChatInstance(): Chat<UIMessage> {
       if (token) h['Authorization'] = `Bearer ${token}`
       return h
     },
-    body: () => ({
-      sourceKey: sessionSourceKey.value,
-      routeContext: sessionRouteContext.value,
-      // Live plan state so the agent prompt can render the `## Active plan`
-      // block. entry.cljs reads this top-level `plan` key.
-      plan: activePlan.value
-        ? {
-            title: activePlan.value.title,
-            steps: activePlan.value.steps.map(s => ({
-              id: s.id,
-              label: s.label,
-              status: s.status,
-              required: s.required ?? false,
-            })),
-          }
-        : null,
-    }),
+    body: () => buildAgentRequestBody(sessionSourceKey.value, sessionRouteContext.value, activePlan.value),
   })
 
   // Hard cap on the auto-loop. The @ai-sdk/vue Chat keeps ONE assistant
