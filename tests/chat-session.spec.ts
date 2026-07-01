@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   proposals, lastNavigation, sessionRouteContext,
   scanForPlanTemplateOutput, collectPlanTemplateCallIds,
-  buildAgentRequestBody,
+  buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
+  acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
 } from '../src/chat-session'
 import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
@@ -355,5 +356,166 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
     }
     const body = buildAgentRequestBody(null, null, plan)
     expect(body.plan?.steps[0].required).toBe(false)
+  })
+})
+
+describe('autoApproveProposals persistence', () => {
+  const KEY = 'cohort-agent-plugin.autoApprove.v1'
+
+  afterEach(() => {
+    localStorage.removeItem(KEY)
+  })
+
+  it('setAutoApproveProposals updates the ref and persists to localStorage', () => {
+    setAutoApproveProposals(true)
+    expect(autoApproveProposals.value).toBe(true)
+    expect(JSON.parse(localStorage.getItem(KEY) ?? 'null')).toBe(true)
+
+    setAutoApproveProposals(false)
+    expect(autoApproveProposals.value).toBe(false)
+    expect(JSON.parse(localStorage.getItem(KEY) ?? 'null')).toBe(false)
+  })
+})
+
+describe('acceptProposal (shared accept pipeline)', () => {
+  const fakeBus = () => ({
+    send: vi.fn(),
+    request: vi.fn(),
+    subscribe: vi.fn(),
+  })
+
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('applies a non-ID-returning proposal via bus.send and resolves accepted', async () => {
+    const bus = fakeBus()
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      {
+        toolCallId: 'tc-acc-1',
+        toolName: 'add_criteria',
+        input: {
+          name: 'Test',
+          group: 'inclusion',
+          logic: 'AND',
+          items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+        },
+      },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-1', { addToolResult })
+
+    expect(bus.send).toHaveBeenCalledWith(
+      'cohort.applyProposal',
+      expect.objectContaining({ proposal: expect.objectContaining({ kind: 'addInclusionRule' }) })
+    )
+    expect(proposals.value['tc-acc-1'].status).toBe('accepted')
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'add_criteria',
+      toolCallId: 'tc-acc-1',
+      output: expect.objectContaining({ decision: 'accepted' }),
+    })
+  })
+
+  it('applies an ID-returning proposal via bus.request and forwards the saved id', async () => {
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ id: 42, name: 'Saved Cohort' })
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-2', toolName: 'save_cohort', input: { name: 'Saved Cohort' } },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-2', { addToolResult })
+
+    expect(bus.request).toHaveBeenCalledWith(
+      'cohort.applyProposal',
+      expect.objectContaining({ proposal: expect.objectContaining({ kind: 'saveCohort' }) })
+    )
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'save_cohort',
+      toolCallId: 'tc-acc-2',
+      output: expect.objectContaining({ decision: 'accepted', savedId: 42, savedName: 'Saved Cohort' }),
+    })
+  })
+
+  it('does nothing for an unknown toolCallId', async () => {
+    const addToolResult = vi.fn()
+    await acceptProposal('does-not-exist', { addToolResult })
+    expect(addToolResult).not.toHaveBeenCalled()
+  })
+})
+
+describe('recordAndMaybeAutoAccept', () => {
+  const fakeBus = () => ({
+    send: vi.fn(),
+    request: vi.fn(),
+    subscribe: vi.fn(),
+  })
+
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+    setAutoApproveProposals(false)
+  })
+
+  afterEach(() => {
+    setAutoApproveProposals(false)
+  })
+
+  it('leaves the proposal pending when auto-approve is off', () => {
+    setHostBridge({ bus: fakeBus(), applyProposal: vi.fn() })
+    recordAndMaybeAutoAccept(
+      { toolCallId: 'tc-raa-1', toolName: 'add_criteria', input: {
+        name: 'Test', group: 'inclusion', logic: 'AND',
+        items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+      } },
+      { addToolResult: () => {} }
+    )
+    expect(proposals.value['tc-raa-1'].status).toBe('pending')
+  })
+
+  it('immediately resolves as accepted when auto-approve is on', async () => {
+    const bus = fakeBus()
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    setAutoApproveProposals(true)
+    const addToolResult = vi.fn()
+    recordAndMaybeAutoAccept(
+      { toolCallId: 'tc-raa-2', toolName: 'add_criteria', input: {
+        name: 'Test', group: 'inclusion', logic: 'AND',
+        items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+      } },
+      { addToolResult }
+    )
+    // acceptProposal awaits nothing on this non-ID-returning path
+    // synchronously up to the bus.send call, but is still an async fn —
+    // flush microtasks before asserting.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(proposals.value['tc-raa-2'].status).toBe('accepted')
+    expect(addToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'tc-raa-2', output: expect.objectContaining({ decision: 'accepted' }) })
+    )
+  })
+
+  it('does not retroactively accept a proposal recorded before the toggle flips on', async () => {
+    setHostBridge({ bus: fakeBus(), applyProposal: vi.fn() })
+    recordAndMaybeAutoAccept(
+      { toolCallId: 'tc-raa-3', toolName: 'add_criteria', input: {
+        name: 'Test', group: 'inclusion', logic: 'AND',
+        items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+      } },
+      { addToolResult: () => {} }
+    )
+    expect(proposals.value['tc-raa-3'].status).toBe('pending')
+
+    setAutoApproveProposals(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(proposals.value['tc-raa-3'].status).toBe('pending')
   })
 })

@@ -11,7 +11,7 @@ import {
   type UIMessage,
 } from 'ai'
 import type { ArtifactKind, RouteContext } from './shell-bridge'
-import { proposalFromToolCall } from './shell-bridge'
+import { applyProposal, applyProposalForResult, proposalFromToolCall, proposalReturnsId } from './shell-bridge'
 import type { MessageBus } from './main'
 import type { AskState, Plan, PlanStepStatus, ProposalState } from './types'
 import {
@@ -20,6 +20,7 @@ import {
   applyPlanToolCall,
   gateProposal,
   isPlanTool,
+  markStepProgress,
   planHistory,
   resetPlans,
   restorePlans,
@@ -31,7 +32,6 @@ let _hostBus: MessageBus | null = null
 let hostApplyProposal: ((p: unknown) => void) | null = null
 export function setHostBridge(opts: { bus: MessageBus; applyProposal: (p: unknown) => void }) {
   _hostBus = opts.bus
-  void _hostBus // reserved for Task 7 — kept for future handler wiring
   hostApplyProposal = opts.applyProposal
 }
 
@@ -215,6 +215,19 @@ function safeWrite(key: string, value: unknown) {
   } catch {
     // quota exceeded or storage disabled — silently ignore
   }
+}
+
+// Global, independent of any specific proposal card and any single chat
+// session — a standing user preference for how much manual review they
+// want, mirroring Claude Code's own auto-accept-edits toggle. Persisted so
+// it survives reloads; NOT part of PersistedSession, since it isn't tied
+// to one chat's content.
+const AUTO_APPROVE_KEY = 'cohort-agent-plugin.autoApprove.v1'
+export const autoApproveProposals = ref<boolean>(safeRead<boolean>(AUTO_APPROVE_KEY, false))
+
+export function setAutoApproveProposals(value: boolean): void {
+  autoApproveProposals.value = value
+  safeWrite(AUTO_APPROVE_KEY, value)
 }
 
 function readIndex(): SessionMeta[] {
@@ -404,6 +417,23 @@ export function recordProposal(
   proposalTimers.set(toolCall.toolCallId, t)
 }
 
+// Called from onToolCall for every client-side proposal tool. Records the
+// proposal exactly as before; if autoApproveProposals is on, immediately
+// resolves it too — same code path a manual click takes (acceptProposal),
+// just triggered synchronously instead of waiting on the user. Does NOT
+// retroactively touch proposals already recorded before the toggle flips
+// on — this check only runs at record time.
+export function recordAndMaybeAutoAccept(
+  toolCall: { toolCallId: string; toolName: string; input: unknown },
+  deps: ProposalResolver,
+  groupInfo?: { groupId?: string; groupIndex?: number }
+): void {
+  recordProposal(toolCall, deps, groupInfo)
+  if (autoApproveProposals.value) {
+    void acceptProposal(toolCall.toolCallId, deps)
+  }
+}
+
 export function resolveProposal(
   toolCallId: string,
   decision: 'accepted' | 'rejected',
@@ -435,6 +465,34 @@ export function resolveProposal(
     toolCallId,
     output: { decision, ...savedBits },
   })
+}
+
+// Shared accept pipeline: build the AgentProposal from the recorded call,
+// apply it (waiting on bus.request for ID-returning kinds so the id can be
+// forwarded), advance any linked plan step, then resolve the tool result.
+// Used by both a manual card click (ChatPanel.vue's onAccept) and the
+// auto-approve path (recordAndMaybeAutoAccept) — same effect either way,
+// just triggered differently. Reuses the module's own _hostBus (set once
+// at mount by setHostBridge) rather than requiring a bus be passed in.
+export async function acceptProposal(
+  toolCallId: string,
+  deps: ProposalResolver
+): Promise<void> {
+  const p = proposals.value[toolCallId]
+  if (!p) return
+  p.status = 'accepted'
+  const proposal = proposalFromToolCall(p.toolName, p.args)
+  let result: { id?: number | string; name?: string } | undefined
+  if (proposal && _hostBus) {
+    const kind = (proposal as { kind?: string }).kind
+    if (kind && proposalReturnsId(kind)) {
+      result = await applyProposalForResult(_hostBus, proposal)
+    } else {
+      applyProposal(_hostBus, proposal)
+    }
+    if (kind) markStepProgress(kind, 'done')
+  }
+  resolveProposal(toolCallId, 'accepted', deps, result)
 }
 
 // `select_plan_template` is a SERVER tool (has `:run` agent-side). Its OUTPUT
@@ -731,13 +789,15 @@ export function getChatInstance(): Chat<UIMessage> {
           }
         }
         const { groupId, groupIndex } = locateGroup(chat.messages, toolCall.toolCallId)
-        recordProposal(
+        recordAndMaybeAutoAccept(
           { toolCallId: toolCall.toolCallId, toolName: toolCall.toolName, input: toolCall.input },
           { addToolResult: (r) => chat.addToolResult(r) },
           { groupId, groupIndex }
         )
-        // No auto-stub — accept/reject in ChatPanel calls resolveProposal,
-        // which sends the real outcome as the tool-result.
+        // If autoApproveProposals is off, this only records — accept/reject
+        // in ChatPanel calls resolveProposal, which sends the real outcome
+        // as the tool-result. If auto-approve is on, recordAndMaybeAutoAccept
+        // also resolves it immediately as accepted.
       }
     },
   })

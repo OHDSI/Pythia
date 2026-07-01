@@ -5,15 +5,14 @@ import DOMPurify from 'dompurify'
 import type { AuthContext, MessageBus, Translator } from './main'
 import {
   applyProposal,
-  applyProposalForResult,
   getShellContext,
-  proposalFromToolCall,
-  proposalReturnsId,
   rejectProposal,
 } from './shell-bridge'
 import {
+  acceptProposal,
   activeSessionId,
   asks,
+  autoApproveProposals,
   clearCurrentSession,
   continueChat,
   deleteChatSession,
@@ -26,11 +25,12 @@ import {
   sessionRouteContext,
   sessionSourceKey,
   sessionToken,
+  setAutoApproveProposals,
   setHostBridge,
   setTokenProvider,
   switchToSession,
 } from './chat-session'
-import { activePlan, markStepProgress, applyUpdatePlanStep } from './plan-state'
+import { activePlan, applyUpdatePlanStep } from './plan-state'
 import PlanCard from './PlanCard.vue'
 import type { PlanStep } from './types'
 import CriterionProposalCard from './CriterionProposalCard.vue'
@@ -387,22 +387,12 @@ function dismissAskLater(id: string, delay: number) {
   }, delay)
 }
 
+function onToggleAutoApprove() {
+  setAutoApproveProposals(!autoApproveProposals.value)
+}
+
 async function onAccept(id: string) {
-  const p = proposals.value[id]
-  if (!p) return
-  p.status = 'accepted'
-  const proposal = proposalFromToolCall(p.toolName, p.args)
-  let result: { id?: number | string; name?: string } | undefined
-  if (proposal) {
-    const kind = (proposal as { kind?: string }).kind
-    if (kind && proposalReturnsId(kind)) {
-      result = await applyProposalForResult(props.messageBus, proposal)
-    } else {
-      applyProposal(props.messageBus, proposal)
-    }
-    if (kind) markStepProgress(kind, 'done')
-  }
-  resolveProposal(id, 'accepted', { addToolResult: (r) => chat.addToolResult(r) }, result)
+  await acceptProposal(id, { addToolResult: (r) => chat.addToolResult(r) })
   dismissProposalLater(id, DISMISS_ACCEPTED_MS)
 }
 
@@ -633,6 +623,16 @@ onMounted(async () => {
         {{ t('cohortAgent.title', 'Pythia AI Agent') }}
       </v-toolbar-title>
       <v-spacer />
+      <v-btn
+        :title="autoApproveProposals
+          ? t('cohortAgent.autoApproveOn', 'Auto-approve proposals: On')
+          : t('cohortAgent.autoApproveOff', 'Auto-approve proposals: Off')"
+        icon="mdi-flash-auto"
+        size="small"
+        :variant="autoApproveProposals ? 'tonal' : 'text'"
+        :color="autoApproveProposals ? 'primary' : undefined"
+        @click="onToggleAutoApprove"
+      />
       <v-menu
         location="bottom end"
         :close-on-content-click="false"
