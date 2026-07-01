@@ -5,13 +5,11 @@ import DOMPurify from 'dompurify'
 import type { AuthContext, MessageBus, Translator } from './main'
 import {
   applyProposal,
-  applyProposalForResult,
   getShellContext,
-  proposalFromToolCall,
-  proposalReturnsId,
   rejectProposal,
 } from './shell-bridge'
 import {
+  acceptProposal,
   activeSessionId,
   asks,
   clearCurrentSession,
@@ -30,7 +28,7 @@ import {
   setTokenProvider,
   switchToSession,
 } from './chat-session'
-import { activePlan, markStepProgress, applyUpdatePlanStep } from './plan-state'
+import { activePlan, applyUpdatePlanStep } from './plan-state'
 import PlanCard from './PlanCard.vue'
 import type { PlanStep } from './types'
 import CriterionProposalCard from './CriterionProposalCard.vue'
@@ -388,21 +386,7 @@ function dismissAskLater(id: string, delay: number) {
 }
 
 async function onAccept(id: string) {
-  const p = proposals.value[id]
-  if (!p) return
-  p.status = 'accepted'
-  const proposal = proposalFromToolCall(p.toolName, p.args)
-  let result: { id?: number | string; name?: string } | undefined
-  if (proposal) {
-    const kind = (proposal as { kind?: string }).kind
-    if (kind && proposalReturnsId(kind)) {
-      result = await applyProposalForResult(props.messageBus, proposal)
-    } else {
-      applyProposal(props.messageBus, proposal)
-    }
-    if (kind) markStepProgress(kind, 'done')
-  }
-  resolveProposal(id, 'accepted', { addToolResult: (r) => chat.addToolResult(r) }, result)
+  await acceptProposal(id, { addToolResult: (r) => chat.addToolResult(r) })
   dismissProposalLater(id, DISMISS_ACCEPTED_MS)
 }
 
