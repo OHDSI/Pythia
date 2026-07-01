@@ -3,6 +3,7 @@ import {
   proposals, lastNavigation, sessionRouteContext,
   scanForPlanTemplateOutput, collectPlanTemplateCallIds,
   buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
+  acceptProposal, recordProposal, setHostBridge,
 } from '../src/chat-session'
 import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
@@ -373,5 +374,78 @@ describe('autoApproveProposals persistence', () => {
     setAutoApproveProposals(false)
     expect(autoApproveProposals.value).toBe(false)
     expect(JSON.parse(localStorage.getItem(KEY) ?? 'null')).toBe(false)
+  })
+})
+
+describe('acceptProposal (shared accept pipeline)', () => {
+  const fakeBus = () => ({
+    send: vi.fn(),
+    request: vi.fn(),
+    subscribe: vi.fn(),
+  })
+
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('applies a non-ID-returning proposal via bus.send and resolves accepted', async () => {
+    const bus = fakeBus()
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      {
+        toolCallId: 'tc-acc-1',
+        toolName: 'add_criteria',
+        input: {
+          name: 'Test',
+          group: 'inclusion',
+          logic: 'AND',
+          items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+        },
+      },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-1', { addToolResult })
+
+    expect(bus.send).toHaveBeenCalledWith(
+      'cohort.applyProposal',
+      expect.objectContaining({ proposal: expect.objectContaining({ kind: 'addInclusionRule' }) })
+    )
+    expect(proposals.value['tc-acc-1'].status).toBe('accepted')
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'add_criteria',
+      toolCallId: 'tc-acc-1',
+      output: expect.objectContaining({ decision: 'accepted' }),
+    })
+  })
+
+  it('applies an ID-returning proposal via bus.request and forwards the saved id', async () => {
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ id: 42, name: 'Saved Cohort' })
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-2', toolName: 'save_cohort', input: { name: 'Saved Cohort' } },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-2', { addToolResult })
+
+    expect(bus.request).toHaveBeenCalledWith(
+      'cohort.applyProposal',
+      expect.objectContaining({ proposal: expect.objectContaining({ kind: 'saveCohort' }) })
+    )
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'save_cohort',
+      toolCallId: 'tc-acc-2',
+      output: expect.objectContaining({ decision: 'accepted', savedId: 42, savedName: 'Saved Cohort' }),
+    })
+  })
+
+  it('does nothing for an unknown toolCallId', async () => {
+    const addToolResult = vi.fn()
+    await acceptProposal('does-not-exist', { addToolResult })
+    expect(addToolResult).not.toHaveBeenCalled()
   })
 })
