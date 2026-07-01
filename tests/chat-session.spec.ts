@@ -4,6 +4,7 @@ import {
   scanForPlanTemplateOutput, collectPlanTemplateCallIds,
   buildAgentRequestBody,
 } from '../src/chat-session'
+import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
 
 describe('navigate_to short-circuit', () => {
@@ -333,9 +334,26 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
     }
   })
 
-  it('passes the active plan through unchanged', () => {
-    const plan = { id: 'p1', title: 'x', steps: [], status: 'active' as const, createdAt: 1, updatedAt: 1 }
+  it('trims the plan to document + minimal step fields', () => {
+    const plan: Plan = {
+      id: 'p1', title: 'x',
+      document: '## Goal\nBuild it.',
+      steps: [{ id: 's1', label: 'Step 1', status: 'pending', required: true }],
+      status: 'active', createdAt: 1, updatedAt: 1,
+    }
     const body = buildAgentRequestBody(null, null, plan)
-    expect(body.plan).toBe(plan)
+    expect(body.plan).toEqual({
+      document: '## Goal\nBuild it.',
+      steps: [{ id: 's1', label: 'Step 1', status: 'pending', required: true }],
+    })
+  })
+
+  it("defaults a step's required to false when unset", () => {
+    const plan: Plan = {
+      id: 'p1', title: 'x', steps: [{ id: 's1', label: 'Step 1', status: 'pending' }],
+      status: 'active', createdAt: 1, updatedAt: 1,
+    }
+    const body = buildAgentRequestBody(null, null, plan)
+    expect(body.plan?.steps[0].required).toBe(false)
   })
 })

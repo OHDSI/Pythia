@@ -13,7 +13,7 @@ import {
 import type { ArtifactKind, RouteContext } from './shell-bridge'
 import { proposalFromToolCall } from './shell-bridge'
 import type { MessageBus } from './main'
-import type { AskState, Plan, ProposalState } from './types'
+import type { AskState, Plan, PlanStepStatus, ProposalState } from './types'
 import {
   activePlan,
   applyGatedPlan,
@@ -506,11 +506,16 @@ const ARTIFACT_KIND_TO_BACKEND: Record<ArtifactKind, string> = {
   incidenceRate: 'incidence_rate',
 }
 
+export interface AgentPlanPayload {
+  document?: string
+  steps: Array<{ id: string; label: string; status: PlanStepStatus; required: boolean }>
+}
+
 export interface AgentRequestBody {
   sourceKey: string | null
   routeContext: RouteContext | null
   context: { route: string; artifact: { kind: string; id: number | string; name: string } | null } | null
-  plan: Plan | null
+  plan: AgentPlanPayload | null
 }
 
 // Shapes the request body agent/src/pythia/entry.cljs expects
@@ -538,7 +543,17 @@ export function buildAgentRequestBody(
             : null,
         }
       : null,
-    plan,
+    plan: plan
+      ? {
+          document: plan.document,
+          steps: plan.steps.map(s => ({
+            id: s.id,
+            label: s.label,
+            status: s.status,
+            required: s.required ?? false,
+          })),
+        }
+      : null,
   }
 }
 
