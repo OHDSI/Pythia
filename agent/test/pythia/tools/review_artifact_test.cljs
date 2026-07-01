@@ -98,7 +98,7 @@
 (deftest concept-set-checks-item-count
   (async done
     (let [[_ restore] (mock-request-status!
-                       (fn [_ _ _] {:status 200 :body {:expression {:items [{:concept {}}]}}}))]
+                       (fn [_ _ _] {:status 200 :body {:items [{:concept {}}]}}))]
       (-> ((:run ra/tool) {:kind "concept_set" :id 1 :intent "statins"} {})
           (.then (fn [out]
                    (is (true? (:pass (get (checks-by-id out) "items-present"))))

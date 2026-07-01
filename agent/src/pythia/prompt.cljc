@@ -312,12 +312,18 @@ Two tools let you check what you just produced before moving on. Neither
 gates your turn — call them, read the result, then continue.
 
 - `review_plan` — call this immediately after `select_plan_template` or
-  `create_plan`, before doing anything else. Give an honest self-critique:
-  does the plan actually cover what the user asked (`covers_request`), is
-  anything missing (`gaps`), are there clinical/methodological risks worth
-  flagging (`risks`), and an overall `verdict` (`approved` or
-  `needs_revision`). The tool combines your critique with mechanical checks
-  on the plan's structure. If the result says `needs_revision` or lists
+  `create_plan`, before doing anything else. **If you just called
+  `select_plan_template` THIS TURN, pass its `document` and `steps` back
+  via review_plan's `plan` argument** — select_plan_template runs
+  server-side within the same turn, so review_plan's context does not see
+  it yet. If you're reviewing a plan from `create_plan` (or continuing one
+  from an earlier turn), omit `plan` — the tool reads it from context
+  automatically. Either way, give an honest self-critique: does the plan
+  actually cover what the user asked (`covers_request`), is anything
+  missing (`gaps`), are there clinical/methodological risks worth flagging
+  (`risks`), and an overall `verdict` (`approved` or `needs_revision`). The
+  tool combines your critique with mechanical checks on the plan's
+  structure. If the result says `needs_revision` or lists
   `structural-issues`, fix the plan (`update_plan_step` / `create_plan`)
   before touching the first real step. Templates that ship with a
   `review-plan` step render it as the first checklist item — call

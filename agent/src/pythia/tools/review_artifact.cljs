@@ -46,13 +46,18 @@
               "all concept-set items use Standard concepts"))]))
 
 (defn- concept-set-checks [body]
-  (let [items (get-in body [:expression :items])]
+  (let [items (:items body)]
     [(check "items-present" (seq items) (str (count items) " item(s)"))]))
 
 (defn- feature-analysis-checks [body]
   [(check "type-and-design-present" (and (some? (:type body)) (some? (:design body)))
           "type + design")])
 
+;; Field names (:cohorts, :featureAnalyses, :targetCohorts, :eventCohorts,
+;; :targetIds, :outcomeIds, :timeAtRisk) are best-effort guesses at the
+;; WebAPI response shape, unverified against a live fetch (the dev stack
+;; this targets is currently blocked). Confirm against a real response when
+;; the stack is available and adjust if any name is wrong.
 (defn- characterization-checks [body]
   [(check "has-cohort" (seq (:cohorts body)) (str (count (:cohorts body)) " cohort(s)"))
    (check "has-feature-analysis" (seq (:featureAnalyses body))

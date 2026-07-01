@@ -77,4 +77,5 @@
     (is (str/includes? s "## Reviewing your own work"))
     (is (str/includes? s "review_plan"))
     (is (str/includes? s "review_artifact"))
-    (is (str/includes? s "not a proposal tool"))))
+    (is (str/includes? s "not a proposal tool"))
+    (is (str/includes? s "select_plan_template runs"))))

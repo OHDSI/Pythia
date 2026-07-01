@@ -69,3 +69,21 @@
   (let [plan {:steps [{:id "a"}]}
         out ((:run rp/tool) {:covers_request true} {:plan plan})]
     (is (= "needs_revision" (get-in out [:model-reported :verdict])))))
+
+(deftest args-plan-used-when-ctx-has-no-plan
+  ;; select_plan_template ran as an in-process server tool this same turn;
+  ;; ctx won't see it, so the model must pass it via args :plan.
+  (let [out ((:run rp/tool)
+             {:covers_request true :verdict "approved"
+              :plan {:document rich-doc :steps [{:id "a"} {:id "b"}]}}
+             {})]
+    (is (true? (:ok out)))
+    (is (empty? (:structural-issues out)))))
+
+(deftest args-plan-takes-priority-over-ctx-plan
+  (let [ctx-plan {:steps [{:id "stale"}]}
+        args-plan {:document rich-doc :steps [{:id "a"} {:id "b"}]}
+        out ((:run rp/tool)
+             {:covers_request true :verdict "approved" :plan args-plan}
+             {:plan ctx-plan})]
+    (is (empty? (:structural-issues out)))))
