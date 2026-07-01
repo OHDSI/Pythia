@@ -71,3 +71,10 @@
 
 (deftest no-plan-block-without-plan
   (is (not (re-find #"Active plan" (prompt/system-prompt {:route "/atlas/"})))))
+
+(deftest system-prompt-covers-reviewing-own-work
+  (let [s (prompt/system-prompt {:route nil :artifact nil})]
+    (is (str/includes? s "## Reviewing your own work"))
+    (is (str/includes? s "review_plan"))
+    (is (str/includes? s "review_artifact"))
+    (is (str/includes? s "not a proposal tool"))))
