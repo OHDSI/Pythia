@@ -569,49 +569,53 @@ export interface AgentPlanPayload {
   steps: Array<{ id: string; label: string; status: PlanStepStatus; required: boolean }>
 }
 
-export interface AgentRequestBody {
+export interface AgentRequestMetadata {
   sourceKey: string | null
-  routeContext: RouteContext | null
   context: { route: string; artifact: { kind: string; id: number | string; name: string } | null } | null
   plan: AgentPlanPayload | null
 }
 
-// Shapes the request body agent/src/pythia/entry.cljs expects
-// (`context: {route, artifact}`, `plan`) from the client-side refs that
-// already exist for other purposes (routeContext drives navigate_to undo;
-// activePlan drives the plan card). Exported and pure so it's testable
-// without constructing a Chat instance.
+export interface AgentRequestBody {
+  metadata: AgentRequestMetadata
+}
+
+// Shapes the request body the trex agents plugin runtime expects
+// (`metadata: {sourceKey, context: {route, artifact}, plan}`) from the
+// client-side refs that already exist for other purposes (routeContext
+// drives navigate_to undo; activePlan drives the plan card). Exported and
+// pure so it's testable without constructing a Chat instance.
 export function buildAgentRequestBody(
   sourceKey: string | null,
   routeContext: RouteContext | null,
   plan: Plan | null
 ): AgentRequestBody {
   return {
-    sourceKey,
-    routeContext,
-    context: routeContext
-      ? {
-          route: routeContext.routeName,
-          artifact: routeContext.artifact
-            ? {
-                kind: ARTIFACT_KIND_TO_BACKEND[routeContext.artifact.kind],
-                id: routeContext.artifact.id,
-                name: routeContext.artifact.name,
-              }
-            : null,
-        }
-      : null,
-    plan: plan
-      ? {
-          document: plan.document,
-          steps: plan.steps.map(s => ({
-            id: s.id,
-            label: s.label,
-            status: s.status,
-            required: s.required ?? false,
-          })),
-        }
-      : null,
+    metadata: {
+      sourceKey,
+      context: routeContext
+        ? {
+            route: routeContext.routeName,
+            artifact: routeContext.artifact
+              ? {
+                  kind: ARTIFACT_KIND_TO_BACKEND[routeContext.artifact.kind],
+                  id: routeContext.artifact.id,
+                  name: routeContext.artifact.name,
+                }
+              : null,
+          }
+        : null,
+      plan: plan
+        ? {
+            document: plan.document,
+            steps: plan.steps.map(s => ({
+              id: s.id,
+              label: s.label,
+              status: s.status,
+              required: s.required ?? false,
+            })),
+          }
+        : null,
+    },
   }
 }
 
@@ -633,7 +637,7 @@ export function getChatInstance(): Chat<UIMessage> {
   for (const cid of collectPlanTemplateCallIds(persisted.messages)) appliedPlanTemplateCallIds.add(cid)
 
   const transport = new DefaultChatTransport({
-    api: '/WebAPI/trexsql/agent/chat',
+    api: '/WebAPI/trex/pythia/chat',
     headers: async () => {
       // Always re-read the token at request time. Atlas3 refreshes JWTs in
       // the background, so a cached value goes stale and causes 401s on

@@ -295,7 +295,7 @@ describe('proposal tool defers tool-result', () => {
 describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)', () => {
   it('sends null context and null plan when nothing is open', () => {
     const body = buildAgentRequestBody(null, null, null)
-    expect(body).toEqual({ sourceKey: null, routeContext: null, context: null, plan: null })
+    expect(body).toEqual({ metadata: { sourceKey: null, context: null, plan: null } })
   })
 
   it('maps routeContext into the context shape entry.cljs expects', () => {
@@ -304,8 +304,8 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
       routeParams: { id: 42 },
       artifact: { kind: 'cohort', id: 42, name: 'T2DM', summary: '3 rules' },
     }, null)
-    expect(body.sourceKey).toBe('EUNOMIA')
-    expect(body.context).toEqual({
+    expect(body.metadata.sourceKey).toBe('EUNOMIA')
+    expect(body.metadata.context).toEqual({
       route: 'cohort-edit',
       artifact: { kind: 'cohort', id: 42, name: 'T2DM' },
     })
@@ -313,7 +313,7 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
 
   it('maps a null artifact through to context.artifact: null', () => {
     const body = buildAgentRequestBody(null, { routeName: 'cohorts', routeParams: {}, artifact: null }, null)
-    expect(body.context).toEqual({ route: 'cohorts', artifact: null })
+    expect(body.metadata.context).toEqual({ route: 'cohorts', artifact: null })
   })
 
   it('translates camelCase artifact kinds to the backend snake_case enum', () => {
@@ -331,7 +331,7 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
         routeParams: {},
         artifact: { kind: frontendKind as never, id: 1, name: 'n', summary: '' },
       }, null)
-      expect(body.context?.artifact?.kind).toBe(backendKind)
+      expect(body.metadata.context?.artifact?.kind).toBe(backendKind)
     }
   })
 
@@ -343,7 +343,7 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
       status: 'active', createdAt: 1, updatedAt: 1,
     }
     const body = buildAgentRequestBody(null, null, plan)
-    expect(body.plan).toEqual({
+    expect(body.metadata.plan).toEqual({
       document: '## Goal\nBuild it.',
       steps: [{ id: 's1', label: 'Step 1', status: 'pending', required: true }],
     })
@@ -355,7 +355,7 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
       status: 'active', createdAt: 1, updatedAt: 1,
     }
     const body = buildAgentRequestBody(null, null, plan)
-    expect(body.plan?.steps[0].required).toBe(false)
+    expect(body.metadata.plan?.steps[0].required).toBe(false)
   })
 })
 

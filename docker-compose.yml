@@ -97,8 +97,8 @@ services:
       - trex-claude-config:/home/node/.claude
       - trex-gh-config:/home/node/.config/gh
       # Pythia agent (ClojureScript) as a mounted Deno function.
-      # Served at /plugins/trexsql/agent/* on :8001. See agent/README.md.
-      - ./agent/plugin:/usr/src/plugins-dev/pythia-agent:ro
+      # Served at /plugins/trex/pythia/* on :8001. See agent/README.md.
+      - ./agent/plugin:/usr/src/plugins-dev/pythia:ro
     environment:
       <<: *swarm-config
       SWARM_NODE: trex
@@ -151,9 +151,11 @@ services:
       # caches modules under $HOME/.cache, and pointing HOME at an unwritable
       # mount (e.g. /data) breaks the trexas worker so the node never boots.
       TREXSQL_CACHE_PATH: /tmp/trexsql-cache
-      # --- Pythia / bao agent ---
+      # --- Pythia / trex agents runtime ---
       AWS_REGION: us-east-1
-      BAO_AGENT_MODEL: ${BAO_AGENT_MODEL:-minimax.minimax-m2.5}
+      # BAO_AGENT_MODEL kept as the operator-facing var name; TREX_AGENTS_DEFAULT_MODEL
+      # is what the trex agents runtime actually reads.
+      TREX_AGENTS_DEFAULT_MODEL: bedrock/${BAO_AGENT_MODEL:-minimax.minimax-m2.5}
       # AWS_BEARER_TOKEN_BEDROCK comes from ./.env via env_file above.
     healthcheck:
       test:
