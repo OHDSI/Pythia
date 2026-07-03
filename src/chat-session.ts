@@ -576,7 +576,7 @@ export interface AgentRequestMetadata {
 }
 
 export interface AgentRequestBody {
-  metadata: AgentRequestMetadata
+  metadata?: AgentRequestMetadata
 }
 
 // Shapes the request body the trex agents plugin runtime expects
@@ -584,11 +584,20 @@ export interface AgentRequestBody {
 // client-side refs that already exist for other purposes (routeContext
 // drives navigate_to undo; activePlan drives the plan card). Exported and
 // pure so it's testable without constructing a Chat instance.
+//
+// When sourceKey, routeContext, AND plan are all null/undefined, omit the
+// `metadata` key entirely rather than sending it with every field null —
+// the prompt's "## Request context format" documents the absence of
+// <context> as meaning "no artifact/plan", so an empty-but-present metadata
+// object would be a different signal than simply not sending one.
 export function buildAgentRequestBody(
   sourceKey: string | null,
   routeContext: RouteContext | null,
   plan: Plan | null
 ): AgentRequestBody {
+  if (sourceKey == null && routeContext == null && plan == null) {
+    return {}
+  }
   return {
     metadata: {
       sourceKey,

@@ -35,8 +35,8 @@ agent/
     resources_test.cljs
     tools/parity_test.cljs   NAME-parity audit against the JVM tool-specs baseline
     ...
-  shadow-cljs.edn        :tools esm build (exports `tools` + `instructions`)
-                          + :test node-test build
+  shadow-cljs.edn        :fn esm build target, :tools module (exports `tools`
+                          + `instructions`) + :test node-test build
   scripts/
     import-map.deno.json     maps eve/tools -> test/eve_tools_stub.mjs (generators + smoke)
     gen-wrappers.mjs         out/tools.js -> plugin/agent/tools/<name>.js (deno)
@@ -67,7 +67,7 @@ Generated artifacts under `plugin/agent/` (`instructions.md`, `tools/*.js`,
 `tools/_build/tools.js`, `resources/`) are **committed** — run `npm run dist`
 and commit the result whenever `src/pythia/**` or `resources/**` change.
 
-The shadow `:tools` build target (`:target :esm`) emits **bare**
+The shadow `:fn` build target (`:target :esm`, module `:tools`) emits **bare**
 `import * from "eve/tools"` (via `:js-provider :import` + `:keep-as-import`).
 That bare specifier is resolved two different ways depending on context:
 
@@ -106,12 +106,12 @@ tools" leaf; the loop, session store, and wire protocol are provided.
 cd agent
 npm install
 npm run test      # shadow-cljs compile test && node out/test.cjs
-npm run dist       # release :tools build + regenerate plugin/agent/{instructions.md,tools/,resources/}
+npm run dist       # release :fn build (:tools module) + regenerate plugin/agent/{instructions.md,tools/,resources/}
 npm run smoke      # deno: import every generated tools/*.js wrapper, assert loader-required shape
 ```
 
 `npm run dist` is what you run before mounting / committing the plugin: it
-runs `npm run build` (shadow-cljs release of the `:tools` target) then
+runs `npm run build` (`shadow-cljs release fn`) then
 `npm run sync` (deno-driven `gen-wrappers.mjs` + `gen-instructions.mjs`,
 then re-copies `resources/` into `plugin/agent/resources/`). It rebuilds the
 compiled bundle and refreshes every generated file under `plugin/agent/`.
@@ -163,18 +163,61 @@ legacy `{:auth :source-key :plan}` shape every `:run` tool function expects.
 `eve/evals`, matching the proven structure of the trex repo's
 `plugins-dev/toy-agent/evals/` fixture): `evals.config.ts` plus one
 `*.eval.ts` per scenario. Run them with the real `eve` CLI against a live,
-mounted stack:
+mounted stack.
+
+### Auth: go through the WebAPI proxy, not :8001 directly
+
+`/plugins/trex/pythia` on :8001 is gated by trex's `authContext` +
+`pluginAuthz` middleware, which requires a `apikey: <service_role>` header
+(see `core/server/middleware/auth-context.ts` and `plugin-authz.ts` in the
+trex repo). `eve eval` has **no `--header`/`-H` flag** — that flag exists
+only on `eve dev` (checked against the installed `eve@0.19.0` CLI's
+`createCliProgram` in `node_modules/eve/dist/src/cli/run.js`). The only
+eval-side auth knob is the `EVE_EVAL_AUTH_TOKEN` env var, and it is sent
+*exclusively* as `Authorization: Bearer <token>`
+(`eve/dist/src/evals/cli/eval-client.js`) — which doesn't help here, because
+trex's `authContext` explicitly refuses to accept `service_role`/`anon`
+keys over the Authorization channel (they must arrive via `apikey`) and
+falls through to "no valid auth" instead. So neither a CLI flag nor
+`EVE_EVAL_AUTH_TOKEN` can get a bare `--url http://localhost:8001/plugins/trex/pythia`
+run past pluginAuthz.
+
+Point `eve eval` at the **WebAPI proxy** instead — trex's bao plugin
+(`plugins/bao/java/src/trexsql/webapi.clj`'s `agent-proxy-handler`) forwards
+`/WebAPI/trex/pythia/*` to `:8001/plugins/trex/pythia/*` and injects the
+`apikey: <service_role>` header itself, unconditionally, on every request
+it proxies (see trex repo, `fix(bao): route /WebAPI/trex/pythia to the
+agents plugin mount`). That means no `EVE_EVAL_AUTH_TOKEN` is even required
+for the eval run to pass pluginAuthz — the proxy supplies it:
 
 ```sh
-npx eve@latest eval --url http://localhost:8001/plugins/trex/pythia
+docker compose up   # brings up trex (:8001/:8080) and the atlas3-caddy frontend (:443)
+npx eve@latest eval --url https://localhost/WebAPI/trex/pythia
 ```
 
-This requires the docker-compose stack up (`docker compose up`) and a real
-model credential (`AWS_BEARER_TOKEN_BEDROCK` set, or another provider's
-model/env pair — see "Environment variables" above): `eve eval --url` polls
-`/eve/v1/health` and verifies `/eve/v1/info` on the target before running
-anything, then drives real sessions through the live agent. The five evals
-authored here:
+This is the same base URL Caddy fronts for the browser (`Caddyfile`'s
+`handle /WebAPI/*` block, matching `WEBAPI_URL`'s default of
+`https://localhost/WebAPI`) — Caddy's dev TLS cert is self-signed (`tls
+internal`); if eve's fetch rejects it, run with
+`NODE_TLS_REJECT_UNAUTHORIZED=0` for that one command.
+
+If you only need to sanity-check the mount is alive (not run structured
+evals), curl it directly with the service_role key as a fallback — read
+`auth.serviceRoleKey` from the trex metadata DB, or the
+`BAO_AGENT_SERVICE_ROLE_KEY` env fallback (see `read-service-role-key` in
+`webapi.clj`):
+
+```sh
+curl -sS http://localhost:8001/plugins/trex/pythia/eve/v1/health \
+  -H "apikey: $BAO_AGENT_SERVICE_ROLE_KEY"
+```
+
+Whichever URL you target, this requires the docker-compose stack up
+(`docker compose up`) and a real model credential
+(`AWS_BEARER_TOKEN_BEDROCK` set, or another provider's model/env pair — see
+"Environment variables" above): `eve eval --url` polls `/eve/v1/health` and
+verifies `/eve/v1/info` on the target before running anything, then drives
+real sessions through the live agent. The five evals authored here:
 
 | File | Asserts |
 |---|---|
