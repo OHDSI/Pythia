@@ -11,4 +11,5 @@
   :test
   {:target :node-test
    :output-to "out/test.cjs"
-   :ns-regexp "-test$"}}}
+   :ns-regexp "-test$"
+   :js-options {:resolve {"eve/tools" {:target :file :file "test/eve_tools_stub.mjs"}}}}}}
