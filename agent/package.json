@@ -6,14 +6,11 @@
   "scripts": {
     "test": "shadow-cljs compile test && node out/test.cjs",
     "build": "shadow-cljs release fn",
-    "sync": "cp out/handler.js plugin/functions/handler.js && rm -rf plugin/functions/resources && cp -R resources plugin/functions/resources",
-    "dist": "npm run build && npm run sync"
+    "sync": "deno run --allow-read --allow-write --import-map=scripts/import-map.deno.json scripts/gen-wrappers.mjs && deno run --allow-read --allow-write --import-map=scripts/import-map.deno.json scripts/gen-instructions.mjs && rm -rf plugin/agent/resources && cp -R resources plugin/agent/resources",
+    "dist": "npm run build && npm run sync",
+    "smoke": "deno run --allow-read --import-map=scripts/import-map.deno.json scripts/smoke-tools.mjs"
   },
   "devDependencies": {
     "shadow-cljs": "^2.28.0"
-  },
-  "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.115",
-    "ai": "^6"
   }
 }

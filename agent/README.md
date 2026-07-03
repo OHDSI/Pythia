@@ -1,39 +1,73 @@
 # Pythia agent (ClojureScript)
 
-The Pythia cohort-design agent, compiled from ClojureScript to an ESM module and
-mounted into the trex node's Deno function runtime. Served at
-`/plugins/trexsql/agent/*` on port **8001**, backed by the Vercel AI SDK
-streaming from Amazon Bedrock (bearer-token auth).
+The Pythia cohort-design agent, compiled from ClojureScript to a trex
+agents-plugin (eve-layout) directory: `instructions.md` + `tools/*.js` +
+`agent.edn`, loaded by trex's shared agent runtime (model loop, tool
+dispatch, durability, eve-compatible HTTP surface — see
+`core/server/agents/README.md` in the [trex](https://github.com/OHDSI/trex)
+repo, which owns the runtime this plugin is authored against). Mounted at
+`/plugins/pythia/pythia/*`.
 
 ## Layout
 
 ```
 agent/
   src/pythia/
-    config.cljs    env config (model id, region, bearer token, WebAPI url)
-    prompt.cljc    system-prompt assembly + dynamic ## Current context block
-    sdk.cljs       Vercel AI SDK wrapper (bearer Bedrock + stream-chat)
-    entry.cljs     ESM entry; exports `handler` (Web fetch -> streaming Response)
+    config.cljs      WebAPI base URL (model/credentials are the trex resolver's job)
+    prompt.cljc       base-prompt: persona + OHDSI workflow + "## Request context
+                       format" (documents the <context> JSON the trex runtime
+                       appends per turn — route/artifact/plan)
+    agent_tools.cljs   adapter: pythia.tools/all -> trex eve `defineTool` results
+    tools/*.cljs       tool definitions ({:name :description :schema :run?})
   test/pythia/
     prompt_test.cljs
-  shadow-cljs.edn  :fn esm build (handler export) + :test node-test build
-  package.json     pins ai@^6, @ai-sdk/amazon-bedrock@^4.0.115; build/sync scripts
-  deno.json        local bare-name -> npm: import map (for local driver runs)
-  out/             build output (gitignored): handler.js, test.cjs
+    resources_test.cljs
+    tools/parity_test.cljs   NAME-parity audit against the JVM tool-specs baseline
+    ...
+  shadow-cljs.edn      :tools esm build (exports `tools` + `instructions`)
+                        + :test node-test build
+  scripts/
+    import-map.deno.json   maps eve/tools -> test/eve_tools_stub.mjs (generators + smoke)
+    gen-wrappers.mjs       out/tools.js -> plugin/agent/tools/<name>.js (deno)
+    gen-instructions.mjs   out/tools.js -> plugin/agent/instructions.md (deno)
+    smoke-tools.mjs        imports every generated wrapper, asserts trex loader shape (deno)
+  package.json         build/sync/dist/smoke scripts
+  out/                 build output (gitignored): tools.js
 
-  plugin/          the MOUNTABLE plugin directory (self-contained)
-    package.json   @trexsql/agent, trex.functions.api -> /agent, /functions
-    functions/
-      index.ts     Deno.serve delegating POST -> handler; GET /health
-      handler.js   COPY of out/handler.js (committed; the mounted artifact)
-      deno.json    bare "ai"/"@ai-sdk/amazon-bedrock" -> npm: specifiers
+  plugin/              the MOUNTABLE plugin directory (self-contained)
+    package.json       @trex/pythia, trex.agents -> [{name: "pythia", dir: "agent"}]
+    agent/              the eve-layout agent directory (TREX_AGENT_DIR at runtime)
+      instructions.md   GENERATED, committed (by gen-instructions.mjs)
+      agent.edn         {:max-steps 20}, no :model (falls back to
+                         TREX_AGENTS_DEFAULT_MODEL, or the resolver's per-provider pick)
+      tools/
+        <name>.js       GENERATED, committed (by gen-wrappers.mjs) — one default
+                        export per tool, re-exporting from _build/tools.js
+        _build/tools.js GENERATED, committed COPY of out/tools.js (directories
+                        under tools/ are invisible to the trex tool loader)
+      resources/        GENERATED, committed COPY of agent/resources/ (EDN corpora)
 ```
 
-The shadow `:fn` build emits **bare** `import * from "ai"` /
-`from "@ai-sdk/amazon-bedrock"` (via `:js-provider :import` +
-`:keep-as-import`). Those bare specifiers are resolved at runtime by
-`plugin/functions/deno.json`, which the trex function loader wires in via the
-`imports` field on the api entry (`/functions/deno.json`).
+Generated artifacts under `plugin/agent/` (`instructions.md`, `tools/*.js`,
+`tools/_build/tools.js`, `resources/`) are **committed**, matching the
+convention this plugin already used for `plugin/functions/handler.js` before
+task P3 restructured it onto the trex agents-plugin layout. Run `npm run
+dist` and commit the result whenever `src/pythia/**` or `resources/**`
+change.
+
+The shadow `:tools` build target (`:target :esm`) emits **bare**
+`import * from "eve/tools"` (via `:js-provider :import` + `:keep-as-import`).
+That bare specifier is resolved two different ways depending on context:
+
+- **At generation time**, `npm run sync` runs `scripts/gen-wrappers.mjs` /
+  `scripts/gen-instructions.mjs` under `deno run --import-map=scripts/import-map.deno.json`,
+  which maps `eve/tools` to `test/eve_tools_stub.mjs` (a minimal brand +
+  validation stub — the same one shadow-cljs's `:test` build already uses).
+- **At runtime**, the trex agents plugin loader generates its own import map
+  per agent worker mapping `eve` / `eve/tools` / `eve/evals` to trex's real
+  eve-shim (see `core/server/plugin/agents.ts` `buildAgentWorkerConfig` in the
+  trex repo) — each generated `tools/<name>.js` wrapper re-imports
+  `tools/_build/tools.js`, whose `eve/tools` import resolves through that map.
 
 ## Build
 
@@ -41,44 +75,27 @@ The shadow `:fn` build emits **bare** `import * from "ai"` /
 cd agent
 npm install
 npm run test     # shadow-cljs compile test && node out/test.cjs
-npm run dist     # release fn  +  copy out/handler.js -> plugin/functions/handler.js
+npm run dist      # release :tools build + regenerate plugin/agent/{instructions.md,tools/,resources/}
+npm run smoke     # deno: import every generated tools/*.js wrapper, assert loader-required shape
 ```
 
 `npm run dist` is what you run before mounting / committing the plugin: it
-rebuilds the ESM handler and refreshes the committed copy under
-`plugin/functions/`.
+rebuilds the compiled bundle and refreshes every generated file under
+`plugin/agent/`. Full verify loop: `npm run dist && npm test && npm run smoke`.
 
-## Mounting into the trex node
+## Mounting
 
-`plugin/` is bind-mounted read-only into the trex container at
-`/usr/src/plugins-dev/pythia-agent` (see `docker-compose.atlas3-trex.yml`).
-Plugin discovery runs once at boot, so adding/altering the mount needs a
-restart:
-
-```sh
-docker compose -f docker-compose.atlas3-trex.yml restart trex
-```
-
-The boot log will show `add fn /agent @ /usr/src/plugins-dev/pythia-agent/functions`.
-
-## npm deps in the worker
-
-The container's Deno can fetch npm packages at runtime (registry reachable);
-the first request resolves and caches `ai` + `@ai-sdk/amazon-bedrock` into the
-deno npm cache. No vendoring required. The deno.json pins
-`@ai-sdk/amazon-bedrock@^4.0.115` (the line that fixes the zod-v4 tool-use
-stream-schema bug) and `ai@^6`.
+`plugin/` is the self-contained, publishable directory: `plugin/package.json`
+declares `"trex": {"agents": [{"name": "pythia", "dir": "agent", "env": {...}}]}`.
+trex's plugin loader only mounts agents-type plugins scoped to `@trex/...`
+(auth requirement — see the trex agents README's HTTP surface section), reads
+`plugin/agent/instructions.md` + `agent.edn` + `tools/*.js` at boot, and
+starts one Deno worker per agent with `TREX_AGENT_DIR` set to
+`<plugin-root>/agent` (i.e. `plugin/agent/` here) — which is why
+`pythia.resources/candidate-paths` prepends `$TREX_AGENT_DIR/resources/<rel>`.
 
 ## Calling it
 
-Routes require an `apikey: <service_role>` header (trex `pluginAuthz`). POST a
-UIMessage array:
-
-```sh
-curl -sN -X POST http://localhost:8001/plugins/trexsql/agent/chat \
-  -H "apikey: $SERVICE_ROLE" -H "content-type: application/json" \
-  -d '{"messages":[{"role":"user","parts":[{"type":"text","text":"reply with exactly: pong"}]}],
-       "context":{"route":"/atlas/#/cohortdefinitions","artifact":null}}'
-```
-
-SSE frames stream back: `text-delta` deltas then `finish`.
+Once mounted, trex exposes the eve-compatible session API and a `/chat`
+convenience endpoint under `/plugins/pythia/pythia/...` — see the trex agents
+README's "HTTP surface" section for the full session/stream/chat protocol.

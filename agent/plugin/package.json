@@ -1,9 +1,11 @@
 {
-  "name": "@ohdsi/pythia-agent",
-  "version": "0.0.1",
-  "description": "Pythia cohort design agent — trex Deno function plugin, served at /agent (via /WebAPI/trexsql/agent or /d2e/agent)",
+  "name": "@trex/pythia",
+  "version": "0.1.0",
+  "description": "Pythia cohort design agent — trex agents-plugin (eve-layout), mounted at /plugins/pythia/pythia",
   "files": [
-    "functions",
+    "agent",
+    "evals",
+    "evals.config.ts",
     "package.json"
   ],
   "publishConfig": {
@@ -15,27 +17,14 @@
     "directory": "agent/plugin"
   },
   "trex": {
-    "functions": {
-      "env": {
-        "_shared": {
-          "AWS_REGION": "${AWS_REGION}",
-          "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}",
-          "BAO_AGENT_MODEL": "${BAO_AGENT_MODEL}",
-          "BAO_AGENT_WEBAPI_URL": "${BAO_AGENT_WEBAPI_URL}"
+    "agents": [
+      {
+        "name": "pythia",
+        "dir": "agent",
+        "env": {
+          "BAO_AGENT_WEBAPI_URL": "${BAO_AGENT_WEBAPI_URL:-http://localhost:8080/WebAPI}"
         }
-      },
-      "api": [
-        {
-          "source": "/agent",
-          "function": "/functions",
-          "imports": "/functions/deno.json"
-        },
-        {
-          "source": "/plugins/trexsql/agent",
-          "function": "/functions",
-          "imports": "/functions/deno.json"
-        }
-      ]
-    }
+      }
+    ]
   }
 }

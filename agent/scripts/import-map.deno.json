@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "eve/tools": "../test/eve_tools_stub.mjs"
+  }
+}
