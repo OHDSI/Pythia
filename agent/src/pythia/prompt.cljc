@@ -1,9 +1,12 @@
 (ns pythia.prompt
   "System prompt for the Pythia cohort design agent.
-   Ported verbatim from trexsql.agent.prompt (bao). The static base prompt is
-   the advisor persona + OHDSI workflow (with the navigate_to views list
-   interpolated by format-views); system-prompt assembles it with a dynamic
-   ## Current context block from the request's route/artifact."
+   Ported verbatim from trexsql.agent.prompt (bao), then restructured for the
+   trex eve-layout agents runtime (task P3): base-prompt is now the WHOLE
+   instructions.md content (persona + OHDSI workflow, with the navigate_to
+   views list interpolated by format-views, plus a static ## Request context
+   format section). The trex runtime — not this namespace — appends the
+   dynamic per-turn <context> JSON (route/artifact/plan) to the prompt; see
+   that new section for the exact shape."
   (:require [clojure.string :as str]
             [pythia.routes :as routes]))
 
@@ -19,7 +22,7 @@
                    (when label (str " — " label)))))
        (str/join "\n")))
 
-(def ^:private base-prompt
+(def base-prompt
   (str "You are PYTHIA, the cohort design advisor inside ATLAS v3.0 — an OHDSI OMOP
 CDM cohort builder. ATLAS charts the data; you, Pythia, advise on the cohort.
 The name is a nod to the Oracle of Delphi: you give clinical guidance the user
@@ -583,42 +586,33 @@ outcomes:
 
 For the other three (feature analysis, pathway, incidence rate) there are no
 hard prerequisites — required cohort/expression details can be added in the
-editor after navigation."))
+editor after navigation.
 
-(defn- context-block
-  "Render the dynamic ## Current context section, or nil when there is nothing
-   to inject (user is on a list/index/home view with no open artifact)."
-  [{:keys [route artifact]}]
-  (when (or route artifact)
-    (let [{:keys [kind id name]} artifact
-          lines (cond-> []
-                  route    (conj (str "- Route: `" route "`"))
-                  artifact (conj (str "- Open artifact: " (or kind "artifact")
-                                      (when name (str " \"" name "\""))
-                                      (when id (str " (id " id ")")))))]
-      (str "\n\n## Current context\n\n"
-           "The user is currently here. Tailor your reply to this screen; when a\n"
-           "block names an open artifact, treat it as the edit target.\n\n"
-           (str/join "\n" lines)))))
+## Request context format
 
-(defn- plan-block
-  "Render the active plan + current required step, or nil when there is none."
-  [plan]
-  (when (and plan (seq (:steps plan)))
-    (let [steps (:steps plan)
-          status (fn [s] (or (:status s) "pending"))
-          current (first (filter #(and (:required %) (not= "done" (status %))) steps))
-          line (fn [s] (str "- [" (case (status s) "done" "x" "in_progress" "~" " ") "] "
-                            (:label s)
-                            (when (:required s) " (required)")))]
-      (str "\n\n## Active plan\n\n"
-           "You are executing a gated plan — work the **first not-done required step**;\n"
-           "the host rejects proposals that skip ahead.\n\n"
-           (str/join "\n" (map line steps))
-           (when current (str "\n\nCurrent step: **" (:label current) "**."))))))
+Before each user message, the trex agents host may append a `<context>` block
+to your system prompt with JSON of this shape:
 
-(defn system-prompt
-  "Assemble the full system prompt for a request. ctx is
-   {:route <string|nil> :artifact <{:kind :id :name}|nil> :plan <map|nil>}."
-  [{:keys [plan] :as ctx}]
-  (str base-prompt (context-block ctx) (plan-block plan)))
+```
+{
+  \"sourceKey\": \"EUNOMIA\",
+  \"context\": {
+    \"route\": \"/atlas/#/cohortdefinitions\",
+    \"artifact\": {\"kind\": \"cohort\", \"id\": 42, \"name\": \"T2DM\"}
+  },
+  \"plan\": {
+    \"document\": \"...\",
+    \"steps\": [{\"id\": \"...\", \"label\": \"...\", \"status\": \"pending\", \"required\": true}]
+  }
+}
+```
+
+- `context.route` / `context.artifact` are the route/open-artifact facts
+  referenced throughout \"Current screen awareness\" and \"Where the user is\"
+  above — treat a present `artifact` as the edit target.
+- `plan.steps` (when present) is the active gated plan: treat every entry with
+  `required: true` as gating, and take the **current step** to be the first
+  required step whose `status` is not `\"done\"` — the host rejects proposals
+  that skip ahead of it. Steps without `required: true` are informational.
+- No `<context>` block, or a `plan` with no steps, means there is no open
+  artifact / no active plan — proceed as described elsewhere in this prompt."))

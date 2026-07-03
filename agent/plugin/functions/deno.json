@@ -1,6 +1,0 @@
-{
-  "imports": {
-    "ai": "npm:ai@^6",
-    "@ai-sdk/amazon-bedrock": "npm:@ai-sdk/amazon-bedrock@^4.0.115"
-  }
-}
