@@ -1,8 +1,9 @@
 (ns pythia.agent-tools
   "Adapter from plain CLJS tool maps (pythia.tools/all) to trex's eve
-   `defineTool`. Parallel to pythia.tools.registry (which targets the
-   Vercel AI SDK `tool`) — that namespace stays untouched until it and
-   entry/sdk are deleted once the eve runtime takes over.
+   `defineTool`. The legacy Vercel-AI-SDK adapter (pythia.tools.registry)
+   and the standalone request loop (pythia.entry / pythia.sdk) have been
+   deleted — trex's shared agent runtime (core/server/agents/ in the trex
+   repo: model loop, sessions, streaming) now owns what those used to do.
 
    A tool map is {:name :description :schema (JSON Schema as CLJS data)
    :run (fn [args ctx])}. A tool map WITHOUT :run is a client-side

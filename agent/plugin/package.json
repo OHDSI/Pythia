@@ -1,11 +1,10 @@
 {
   "name": "@trex/pythia",
   "version": "0.1.0",
-  "description": "Pythia cohort design agent — trex agents-plugin (eve-layout), mounted at /plugins/pythia/pythia",
+  "description": "Pythia cohort design agent — trex agents-plugin (eve-layout), mounted at /plugins/trex/pythia",
   "files": [
     "agent",
     "evals",
-    "evals.config.ts",
     "package.json"
   ],
   "publishConfig": {
