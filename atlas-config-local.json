@@ -1,0 +1,16 @@
+{
+  "$comment": "Runtime Atlas3 config, mounted over the image's /srv/atlas/config-local.json (see docker-compose.yml). Since Atlas3 externalized its config, the old VITE_* build args are dead; auth and the Pythia FAB are enabled here instead.",
+  "api": { "url": "/WebAPI" },
+  "userAuthenticationEnabled": true,
+  "enableSkipLogin": false,
+  "authProviders": [
+    {
+      "name": "Database",
+      "url": "user/login/db",
+      "ajax": true,
+      "icon": "mdi-database",
+      "isUseCredentialsForm": true
+    }
+  ],
+  "enablePythia": true
+}
