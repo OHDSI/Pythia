@@ -11,7 +11,6 @@ import {
   type UIMessage,
 } from 'ai'
 import type { ArtifactKind, RouteContext } from './shell-bridge'
-import { applyProposal, applyProposalForResult, proposalFromToolCall, proposalReturnsId } from './shell-bridge'
 import type { MessageBus } from './main'
 import type { AskState, Plan, PlanStepStatus, ProposalState } from './types'
 import {
@@ -47,18 +46,41 @@ export const lastNavigation = ref<LastNavigation | null>(null)
 
 export interface NavigateHandlerDeps {
   addToolResult: (r: { tool: string; toolCallId: string; output: unknown }) => void
-  applyProposal: (p: unknown) => void
 }
 
-export function handleNavigateTool(
+interface CapabilityApplyResult {
+  applied: boolean
+  kind?: string
+  id?: number | string
+  name?: string
+}
+
+// Delegates translation+apply to ATLAS's `capability.apply` bus handler
+// (Task A3 moved the CIRCE translation there). ATLAS validates the view
+// against its route manifest and performs the navigation; we only rebuild
+// the undo toast from the tool call's own args plus our local
+// sessionRouteContext, since ATLAS's reply doesn't echo the route/reason.
+export async function handleNavigateTool(
   toolCall: { toolCallId: string; input: unknown },
   deps: NavigateHandlerDeps
-): void {
-  const proposal = proposalFromToolCall(
-    'navigate_to',
-    (toolCall.input ?? {}) as Parameters<typeof proposalFromToolCall>[1]
-  )
-  if (!proposal) {
+): Promise<void> {
+  const args = (toolCall.input ?? {}) as Record<string, unknown>
+
+  // Capture the previous route from the last-fetched shell context so the
+  // user can undo. sessionRouteContext is refreshed by ChatPanel before
+  // each message send, so it reflects where the user was AT SEND TIME —
+  // which is when the model decided to navigate.
+  const ctx = sessionRouteContext.value
+  const previous = ctx?.routeName
+    ? { name: ctx.routeName, params: { ...(ctx.routeParams ?? {}) } as Record<string, string | number> }
+    : null
+
+  const res = await _hostBus?.request<CapabilityApplyResult>('capability.apply', {
+    name: 'navigate_to',
+    args,
+  })
+
+  if (!res?.applied) {
     deps.addToolResult({
       tool: 'navigate_to',
       toolCallId: toolCall.toolCallId,
@@ -72,23 +94,13 @@ export function handleNavigateTool(
     })
     return
   }
-  const route = (proposal as unknown as { route: { name: string }; reason?: string }).route
-  const reason = (proposal as unknown as { reason?: string }).reason
 
-  // Capture the previous route from the last-fetched shell context so the
-  // user can undo. sessionRouteContext is refreshed by ChatPanel before
-  // each message send, so it reflects where the user was AT SEND TIME —
-  // which is when the model decided to navigate.
-  const ctx = sessionRouteContext.value
-  const previous = ctx?.routeName
-    ? { name: ctx.routeName, params: { ...(ctx.routeParams ?? {}) } as Record<string, string | number> }
-    : null
-
-  deps.applyProposal(proposal)
+  const toName = args.view as string
+  const reason = typeof args.reason === 'string' ? args.reason : undefined
 
   lastNavigation.value = {
     id: toolCall.toolCallId,
-    toName: route.name,
+    toName,
     reason,
     previous,
     at: Date.now(),
@@ -100,7 +112,7 @@ export function handleNavigateTool(
     output: {
       success: true,
       applied: true,
-      route: route.name,
+      route: toName,
       undoAvailable: previous !== null,
       instruction:
         'You took the user to a new view. Continue your turn; the user can undo via the toast if they wanted to stay.',
@@ -149,6 +161,60 @@ export const CLIENT_SIDE_TOOLS = new Set([
   'update_pathway',
   'update_incidence_rate',
 ])
+
+// Discriminates the `AgentProposal.kind` a client-side tool call would
+// produce, WITHOUT doing the full CIRCE translation — that logic is
+// single-homed in ATLAS's `translateCapability`
+// (src/plugins/host/capabilities/translate.ts). This is used only by the
+// plan gate-skip check in `onToolCall`, which needs the kind synchronously,
+// before the (async) `capability.apply` round-trip to ATLAS happens. Must be
+// kept in lockstep with `translateCapability`'s kind mapping — see the
+// fidelity test in chat-session.spec.ts.
+export function proposalKind(name: string, args: Record<string, unknown>): string | null {
+  switch (name) {
+    case 'add_criterion':
+      return args.group ? 'addInclusionRule' : 'addEntryEvent'
+    case 'add_criteria':
+    case 'add_inclusion_rule':
+      return 'addInclusionRule'
+    case 'set_entry_event':
+      return 'addEntryEvent'
+    case 'set_observation_window':
+      return 'setObservationPeriod'
+    case 'add_exit_criterion':
+      return 'setExitCriteria'
+    case 'set_censor_event':
+      return 'addCensoringCriterion'
+    case 'navigate_to':
+      return 'navigate'
+    case 'save_cohort':
+      return 'saveCohort'
+    case 'create_concept_set':
+      return 'addConceptSet'
+    case 'create_standalone_concept_set':
+      return 'createStandaloneConceptSet'
+    case 'create_feature_analysis':
+      return 'createFeatureAnalysis'
+    case 'create_characterization':
+      return 'createCharacterization'
+    case 'create_pathway':
+      return 'createPathway'
+    case 'create_incidence_rate':
+      return 'createIncidenceRate'
+    case 'update_concept_set':
+      return 'updateConceptSet'
+    case 'update_feature_analysis':
+      return 'updateFeatureAnalysis'
+    case 'update_characterization':
+      return 'updateCharacterization'
+    case 'update_pathway':
+      return 'updatePathway'
+    case 'update_incidence_rate':
+      return 'updateIncidenceRate'
+    default:
+      return null
+  }
+}
 
 export const sessionToken = ref<string | null>(null)
 export const sessionSourceKey = ref<string | null>(null)
@@ -467,13 +533,14 @@ export function resolveProposal(
   })
 }
 
-// Shared accept pipeline: build the AgentProposal from the recorded call,
-// apply it (waiting on bus.request for ID-returning kinds so the id can be
-// forwarded), advance any linked plan step, then resolve the tool result.
-// Used by both a manual card click (ChatPanel.vue's onAccept) and the
-// auto-approve path (recordAndMaybeAutoAccept) — same effect either way,
-// just triggered differently. Reuses the module's own _hostBus (set once
-// at mount by setHostBridge) rather than requiring a bus be passed in.
+// Shared accept pipeline: delegate the recorded tool call to ATLAS's
+// `capability.apply` bus handler, which owns the full CIRCE translation
+// (Task A3) and now also applies it, advance any linked plan step from the
+// returned kind, then resolve the tool result. Used by both a manual card
+// click (ChatPanel.vue's onAccept) and the auto-approve path
+// (recordAndMaybeAutoAccept) — same effect either way, just triggered
+// differently. Reuses the module's own _hostBus (set once at mount by
+// setHostBridge) rather than requiring a bus be passed in.
 export async function acceptProposal(
   toolCallId: string,
   deps: ProposalResolver
@@ -481,16 +548,16 @@ export async function acceptProposal(
   const p = proposals.value[toolCallId]
   if (!p) return
   p.status = 'accepted'
-  const proposal = proposalFromToolCall(p.toolName, p.args)
   let result: { id?: number | string; name?: string } | undefined
-  if (proposal && _hostBus) {
-    const kind = (proposal as { kind?: string }).kind
-    if (kind && proposalReturnsId(kind)) {
-      result = await applyProposalForResult(_hostBus, proposal)
-    } else {
-      applyProposal(_hostBus, proposal)
+  if (_hostBus) {
+    const applied = await _hostBus.request<CapabilityApplyResult>('capability.apply', {
+      name: p.toolName,
+      args: p.args,
+    })
+    if (applied?.applied) {
+      result = { id: applied.id, name: applied.name }
+      if (applied.kind) markStepProgress(applied.kind, 'done')
     }
-    if (kind) markStepProgress(kind, 'done')
   }
   resolveProposal(toolCallId, 'accepted', deps, result)
 }
@@ -705,13 +772,9 @@ export function getChatInstance(): Chat<UIMessage> {
     },
     onToolCall: ({ toolCall }: { toolCall: { toolCallId: string; toolName: string; input: unknown } }) => {
       if (toolCall.toolName === 'navigate_to') {
-        if (!hostApplyProposal) return
-        handleNavigateTool(
+        void handleNavigateTool(
           { toolCallId: toolCall.toolCallId, input: toolCall.input },
-          {
-            addToolResult: (r) => chat.addToolResult(r),
-            applyProposal: hostApplyProposal,
-          }
+          { addToolResult: (r) => chat.addToolResult(r) }
         )
         return
       }
@@ -772,11 +835,7 @@ export function getChatInstance(): Chat<UIMessage> {
         // past its first not-done required step, don't render the card —
         // feed the correction back as the tool-result so the model retries
         // the correct step (same addToolResult path the timeout handler uses).
-        const proposal = proposalFromToolCall(
-          toolCall.toolName as Parameters<typeof proposalFromToolCall>[0],
-          (toolCall.input ?? {}) as Parameters<typeof proposalFromToolCall>[1]
-        )
-        const kind = (proposal as { kind?: string } | null)?.kind
+        const kind = proposalKind(toolCall.toolName, (toolCall.input ?? {}) as Record<string, unknown>)
         if (kind) {
           const gate = gateProposal(kind)
           if (!gate.ok) {

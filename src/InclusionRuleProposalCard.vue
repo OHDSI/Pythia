@@ -8,8 +8,8 @@ defineEmits<{ accept: [id: string]; reject: [id: string] }>()
 const args = computed(() => props.proposal.args)
 
 // add_inclusion_rule uses {logicType, events}; add_criteria uses {logic, items}.
-// shell-bridge.proposalFromToolCall already normalises both on accept — mirror
-// that here so the card renders both shapes correctly.
+// ATLAS's translateCapability already normalises both shapes on accept —
+// mirror that here so the card renders both shapes correctly.
 const items = computed(
   () => args.value.events ?? args.value.items ?? [],
 )

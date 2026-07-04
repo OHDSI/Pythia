@@ -1,311 +1,73 @@
-import { describe, it, expect } from 'vitest'
-import { proposalFromToolCall, proposalReturnsId } from '../src/shell-bridge'
-import { isAgentVisibleView } from '../src/route-manifest'
+import { describe, it, expect, vi } from 'vitest'
+import { getShellContext, applyProposal, rejectProposal, notify } from '../src/shell-bridge'
+import type { MessageBus } from '../src/main'
 
-describe('save_cohort mapping', () => {
-  it('maps save_cohort to a saveCohort proposal', () => {
-    expect(proposalFromToolCall('save_cohort', {} as never)).toEqual({ kind: 'saveCohort' })
-  })
-  it('marks id-returning kinds', () => {
-    expect(proposalReturnsId('saveCohort')).toBe(true)
-    expect(proposalReturnsId('createPathway')).toBe(true)
-    expect(proposalReturnsId('addEntryEvent')).toBe(false)
-  })
-})
+// The CIRCE translation (proposalFromToolCall and its helpers) moved to
+// ATLAS's translateCapability (Task A3/A5) — that coverage now lives in
+// ATLAS's translate.spec.ts. This file covers what's left in shell-bridge.ts:
+// the thin bus-plumbing helpers used directly by ChatPanel.vue.
 
-describe('proposalFromToolCall', () => {
-  it('add_criterion (no group) → addEntryEvent', () => {
-    const p = proposalFromToolCall('add_criterion', {
-      conceptId: 201826,
-      conceptName: 'Type 2 diabetes mellitus',
-      domain: 'Condition',
-      includeDescendants: true,
-    })
-    expect(p?.kind).toBe('addEntryEvent')
+describe('getShellContext', () => {
+  it('returns the app.getContext response when available', async () => {
+    const bus: MessageBus = {
+      send: vi.fn(),
+      request: vi.fn().mockResolvedValue({ sourceKey: 'EUNOMIA', cohort: null }),
+      subscribe: vi.fn(),
+    }
+    const ctx = await getShellContext(bus)
+    expect(bus.request).toHaveBeenCalledWith('app.getContext', {})
+    expect(ctx).toEqual({ sourceKey: 'EUNOMIA', cohort: null })
   })
 
-  it('add_criterion group=inclusion → addInclusionRule', () => {
-    const p = proposalFromToolCall('add_criterion', {
-      conceptId: 1503297,
-      conceptName: 'Metformin',
-      domain: 'Drug',
-      includeDescendants: true,
-      group: 'inclusion',
-    })
-    expect(p?.kind).toBe('addInclusionRule')
+  it('falls back to cohort.getContext when app.getContext is unavailable', async () => {
+    const bus: MessageBus = {
+      send: vi.fn(),
+      request: vi.fn()
+        .mockRejectedValueOnce(new Error('unsupported'))
+        .mockResolvedValueOnce({ sourceKey: 'EUNOMIA', cohort: null }),
+      subscribe: vi.fn(),
+    }
+    const ctx = await getShellContext(bus)
+    expect(bus.request).toHaveBeenNthCalledWith(1, 'app.getContext', {})
+    expect(bus.request).toHaveBeenNthCalledWith(2, 'cohort.getContext', {})
+    expect(ctx).toEqual({ sourceKey: 'EUNOMIA', cohort: null })
   })
 
-  it('set_observation_window → setObservationPeriod', () => {
-    const p = proposalFromToolCall('set_observation_window', { priorDays: 365, postDays: 30 })
-    expect(p).toMatchObject({
-      kind: 'setObservationPeriod',
-      observationPeriod: { priorDays: 365, postDays: 30 },
-    })
-  })
-
-  it('add_exit_criterion strategy mapping', () => {
-    const p = proposalFromToolCall('add_exit_criterion', {
-      strategy: 'continuous_drug',
-      persistenceWindow: 30,
-    })
-    expect(p?.kind).toBe('setExitCriteria')
-    expect((p as { exitCriteria: { strategy: string } }).exitCriteria.strategy).toBe('CONTINUOUS_DRUG')
-  })
-
-  it('set_censor_event → addCensoringCriterion', () => {
-    const p = proposalFromToolCall('set_censor_event', {
-      conceptId: 4099154,
-      conceptName: 'Death',
-      domain: 'Condition',
-      includeDescendants: true,
-    })
-    expect(p?.kind).toBe('addCensoringCriterion')
-  })
-
-  it('create_concept_set → addConceptSet with items', () => {
-    const p = proposalFromToolCall('create_concept_set', {
-      name: 'NSAIDs',
-      items: [
-        { conceptId: 1, conceptName: 'Ibuprofen', domain: 'Drug' },
-        { conceptId: 2, conceptName: 'Naproxen', domain: 'Drug' },
-      ],
-    })
-    expect(p?.kind).toBe('addConceptSet')
-    expect((p as { conceptSet: { items: unknown[] } }).conceptSet.items).toHaveLength(2)
-  })
-
-  it('add_inclusion_rule → addInclusionRule with logicType', () => {
-    const p = proposalFromToolCall('add_inclusion_rule', {
-      name: 'At least 2 visits',
-      logicType: 'AT_LEAST',
-      count: 2,
-      events: [
-        { conceptId: 9201, conceptName: 'Inpatient', domain: 'Visit', includeDescendants: true },
-      ],
-    })
-    expect(p?.kind).toBe('addInclusionRule')
-    const rule = (p as { rule: { criteriaGroups: { logicType: string; count?: number }[] } }).rule
-    expect(rule.criteriaGroups[0].logicType).toBe('AT_LEAST')
-    expect(rule.criteriaGroups[0].count).toBe(2)
-  })
-
-  it('returns null for unknown tool name', () => {
-    expect(proposalFromToolCall('not_a_tool', {})).toBeNull()
-  })
-
-  it('returns null for create_concept_set with no items', () => {
-    expect(proposalFromToolCall('create_concept_set', { name: 'empty' })).toBeNull()
-  })
-
-  it('create_feature_analysis → createFeatureAnalysis', () => {
-    const p = proposalFromToolCall('create_feature_analysis', {
-      name: 'Demographics',
-      type: 'PRESET',
-      design: 'demographics-age-group',
-    })
-    expect(p?.kind).toBe('createFeatureAnalysis')
-    const payload = (p as { payload: { name: string; type: string; design: unknown } }).payload
-    expect(payload.name).toBe('Demographics')
-    expect(payload.type).toBe('PRESET')
-    expect(payload.design).toBe('demographics-age-group')
-    expect((p as { openAfterCreate: boolean }).openAfterCreate).toBe(true)
-  })
-
-  it('create_feature_analysis → null when type missing', () => {
-    expect(
-      proposalFromToolCall('create_feature_analysis', { name: 'No type' })
-    ).toBeNull()
-  })
-
-  it('create_characterization → createCharacterization with linked entities', () => {
-    const p = proposalFromToolCall('create_characterization', {
-      name: 'T2DM baseline',
-      cohorts: [{ id: 1, name: 'T2DM patients' }],
-      featureAnalyses: [{ id: 10, name: 'Demographics' }],
-    })
-    expect(p?.kind).toBe('createCharacterization')
-    const payload = (p as {
-      payload: {
-        cohorts: { id: number; name: string }[]
-        featureAnalyses: { id: number }[]
-      }
-    }).payload
-    expect(payload.cohorts).toEqual([{ id: 1, name: 'T2DM patients' }])
-    expect(payload.featureAnalyses[0].id).toBe(10)
-  })
-
-  it('create_characterization → null when cohorts is empty', () => {
-    expect(
-      proposalFromToolCall('create_characterization', {
-        name: 'no cohorts',
-        cohorts: [],
-        featureAnalyses: [{ id: 10, name: 'Demographics' }],
-      })
-    ).toBeNull()
-  })
-
-  it('create_characterization → null when featureAnalyses is empty', () => {
-    expect(
-      proposalFromToolCall('create_characterization', {
-        name: 'no FAs',
-        cohorts: [{ id: 1, name: 'T2DM' }],
-        featureAnalyses: [],
-      })
-    ).toBeNull()
-  })
-
-  it('create_pathway → createPathway with overrides + filtered cohorts', () => {
-    const p = proposalFromToolCall('create_pathway', {
-      name: 'Antidiabetic sequencing',
-      combinationWindow: 60,
-      maxDepth: 4,
-      targetCohorts: [{ id: 5, name: 'T2DM' }],
-      eventCohorts: [{ id: 6, name: 'Metformin' }],
-    })
-    expect(p?.kind).toBe('createPathway')
-    const payload = (p as {
-      payload: {
-        combinationWindow: number
-        maxDepth: number
-        targetCohorts: unknown[]
-      }
-    }).payload
-    expect(payload.combinationWindow).toBe(60)
-    expect(payload.maxDepth).toBe(4)
-    expect(payload.targetCohorts).toHaveLength(1)
-  })
-
-  it('create_pathway → null when name missing', () => {
-    expect(proposalFromToolCall('create_pathway', {})).toBeNull()
-  })
-
-  it('create_incidence_rate → createIncidenceRate with timeAtRisk projection', () => {
-    const p = proposalFromToolCall('create_incidence_rate', {
-      name: 'GI bleed on NSAIDs',
-      targetIds: [42],
-      outcomeIds: [99],
-      timeAtRisk: {
-        start: { DateField: 'StartDate', Offset: 0 },
-        end: { DateField: 'StartDate', Offset: 365 },
-      },
-    })
-    expect(p?.kind).toBe('createIncidenceRate')
-    const payload = (p as {
-      payload: {
-        targetIds: number[]
-        outcomeIds: number[]
-        timeAtRisk: { start: { DateField: string; Offset: number }; end: { Offset: number } }
-      }
-    }).payload
-    expect(payload.targetIds).toEqual([42])
-    expect(payload.outcomeIds).toEqual([99])
-    expect(payload.timeAtRisk.start).toEqual({ DateField: 'StartDate', Offset: 0 })
-    expect(payload.timeAtRisk.end.Offset).toBe(365)
-  })
-
-  it('create_incidence_rate → null when name missing', () => {
-    expect(proposalFromToolCall('create_incidence_rate', {})).toBeNull()
-  })
-
-  it('navigate_to → navigate proposal with projected params', () => {
-    const p = proposalFromToolCall('navigate_to', {
-      view: 'cohort-edit',
-      id: 42,
-      reason: 'Open the matching cohort',
-    })
-    expect(p?.kind).toBe('navigate')
-    const route = (p as { route: { name: string; params: Record<string, unknown> } }).route
-    expect(route.name).toBe('cohort-edit')
-    expect(route.params.id).toBe(42)
-  })
-
-  it('navigate_to → null for unknown view', () => {
-    expect(
-      proposalFromToolCall('navigate_to', { view: 'totally-fake-view' })
-    ).toBeNull()
-  })
-
-  it('add_criterion exclusion produces an inclusion rule with EXACTLY 0, not censoring', () => {
-    const p: any = proposalFromToolCall('add_criterion', {
-      conceptId: 443238, conceptName: 'Type 1 diabetes mellitus', domain: 'Condition',
-      group: 'exclusion', includeDescendants: true,
-    })
-    expect(p.kind).toBe('addInclusionRule')
-    const ev = p.rule.criteriaGroups[0].events[0]
-    expect(ev.cardinality).toEqual({ type: 'EXACTLY', count: 0, countingMethod: 'ALL' })
-  })
-
-  it('maps temporalWindow to event startWindow/endWindow', () => {
-    const p: any = proposalFromToolCall('add_inclusion_rule', {
-      name: 'Metformin within 365d before index', logicType: 'AT_LEAST', count: 1,
-      temporalWindow: { startDays: -365, endDays: 0 },
-      events: [{ conceptId: 1503297, conceptName: 'Metformin', domain: 'Drug', includeDescendants: true }],
-    })
-    const ev = p.rule.criteriaGroups[0].events[0]
-    expect(ev.temporalWindow.startWindow).toEqual({ days: 365, beforeAfter: 'BEFORE', referencePoint: 'INDEX_START' })
-    expect(ev.temporalWindow.endWindow).toEqual({ days: 0, beforeAfter: 'AFTER', referencePoint: 'INDEX_START' })
-  })
-
-  it('add_inclusion_rule with logicType AT_MOST count 0 emits EXACTLY 0 on the event', () => {
-    const p: any = proposalFromToolCall('add_inclusion_rule', {
-      name: 'Exclude T1DM', logicType: 'AT_MOST', count: 0,
-      events: [{ conceptId: 443238, conceptName: 'Type 1 diabetes mellitus', domain: 'Condition', includeDescendants: true }],
-    })
-    expect(p.kind).toBe('addInclusionRule')
-    const g = p.rule.criteriaGroups[0]
-    expect(g.logicType).toBe('ALL')
-    expect(g.count).toBeUndefined()
-    expect(g.events[0].cardinality).toEqual({ type: 'EXACTLY', count: 0, countingMethod: 'ALL' })
-  })
-
-  it('maps null temporalWindow bounds to all-time (days null)', () => {
-    const p: any = proposalFromToolCall('add_inclusion_rule', {
-      name: 'any time prior', logicType: 'AT_LEAST', count: 1,
-      temporalWindow: { startDays: null, endDays: null },
-      events: [{ conceptId: 1, conceptName: 'X', domain: 'Condition', includeDescendants: true }],
-    })
-    const tw = p.rule.criteriaGroups[0].events[0].temporalWindow
-    expect(tw.startWindow).toEqual({ days: null, beforeAfter: 'BEFORE', referencePoint: 'INDEX_START' })
-    expect(tw.endWindow).toEqual({ days: null, beforeAfter: 'AFTER', referencePoint: 'INDEX_START' })
-  })
-
-  it('omits temporalWindow on events when none is given', () => {
-    const p: any = proposalFromToolCall('add_inclusion_rule', {
-      name: 'no window', logicType: 'AT_LEAST', count: 1,
-      events: [{ conceptId: 1, conceptName: 'X', domain: 'Condition', includeDescendants: true }],
-    })
-    expect(p.rule.criteriaGroups[0].events[0].temporalWindow).toBeUndefined()
+  it('falls back to an empty context when both requests fail', async () => {
+    const bus: MessageBus = {
+      send: vi.fn(),
+      request: vi.fn().mockRejectedValue(new Error('down')),
+      subscribe: vi.fn(),
+    }
+    const ctx = await getShellContext(bus)
+    expect(ctx).toEqual({ sourceKey: null, cohort: null })
   })
 })
 
-describe('navigate_to via manifest', () => {
-  it('rejects views not in the manifest', () => {
-    const p = proposalFromToolCall('navigate_to', { view: 'nonexistent-route', reason: 'x' })
-    expect(p).toBeNull()
+describe('applyProposal / rejectProposal / notify', () => {
+  const fakeBus = (): MessageBus => ({ send: vi.fn(), request: vi.fn(), subscribe: vi.fn() })
+
+  it('applyProposal sends cohort.applyProposal with the proposal', () => {
+    const bus = fakeBus()
+    applyProposal(bus, { kind: 'saveCohort' } as never)
+    expect(bus.send).toHaveBeenCalledWith('cohort.applyProposal', { proposal: { kind: 'saveCohort' } })
   })
 
-  it('accepts a newly-added manifest route', () => {
-    // characterization-results is the canary — it must be reachable now.
-    expect(isAgentVisibleView('characterization-results')).toBe(true)
-    const p = proposalFromToolCall('navigate_to', {
-      view: 'characterization-results',
-      id: 17,
-      executionId: 99,
-      reason: 'See the run',
-    })
-    expect(p?.kind).toBe('navigate')
-    const route = (p as { route: { name: string; params: Record<string, unknown> } }).route
-    expect(route.name).toBe('characterization-results')
-    expect(route.params).toEqual({ id: 17, executionId: 99 })
+  it('rejectProposal sends cohort.rejectProposal with the id', () => {
+    const bus = fakeBus()
+    rejectProposal(bus, 'tc-1')
+    expect(bus.send).toHaveBeenCalledWith('cohort.rejectProposal', { id: 'tc-1' })
   })
 
-  it('drops params not declared for the view', () => {
-    const p = proposalFromToolCall('navigate_to', {
-      view: 'home',
-      id: 5, // home takes no params; must be dropped
-      reason: 'go home',
-    })
-    const route = (p as { route: { params: Record<string, unknown> } }).route
-    expect(route.params).toEqual({})
+  it('notify sends notify.snackbar with message and the default "info" type', () => {
+    const bus = fakeBus()
+    notify(bus, 'hello')
+    expect(bus.send).toHaveBeenCalledWith('notify.snackbar', { message: 'hello', type: 'info' })
+  })
+
+  it('notify supports a custom type', () => {
+    const bus = fakeBus()
+    notify(bus, 'oops', 'error')
+    expect(bus.send).toHaveBeenCalledWith('notify.snackbar', { message: 'oops', type: 'error' })
   })
 })
