@@ -75,10 +75,19 @@ export async function handleNavigateTool(
     ? { name: ctx.routeName, params: { ...(ctx.routeParams ?? {}) } as Record<string, string | number> }
     : null
 
-  const res = await _hostBus?.request<CapabilityApplyResult>('capability.apply', {
-    name: 'navigate_to',
-    args,
-  })
+  let res: CapabilityApplyResult | undefined
+  try {
+    res = await _hostBus?.request<CapabilityApplyResult>('capability.apply', {
+      name: 'navigate_to',
+      args,
+    })
+  } catch {
+    // capability.apply rejects after a 30s bus timeout (or if ATLAS's handler
+    // throws). Degrade to the same "not applied" tool-result the host would
+    // send on an explicit rejection, so the agent loop always gets a result
+    // instead of hanging on this awaited request forever.
+    res = undefined
+  }
 
   if (!res?.applied) {
     deps.addToolResult({
@@ -550,13 +559,22 @@ export async function acceptProposal(
   p.status = 'accepted'
   let result: { id?: number | string; name?: string } | undefined
   if (_hostBus) {
-    const applied = await _hostBus.request<CapabilityApplyResult>('capability.apply', {
-      name: p.toolName,
-      args: p.args,
-    })
-    if (applied?.applied) {
-      result = { id: applied.id, name: applied.name }
-      if (applied.kind) markStepProgress(applied.kind, 'done')
+    try {
+      const applied = await _hostBus.request<CapabilityApplyResult>('capability.apply', {
+        name: p.toolName,
+        args: p.args,
+      })
+      if (applied?.applied) {
+        result = { id: applied.id, name: applied.name }
+        if (applied.kind) markStepProgress(applied.kind, 'done')
+      }
+    } catch {
+      // capability.apply rejects after a 30s bus timeout (or if ATLAS's
+      // handler throws). The user already accepted, so resolve as accepted
+      // with no result — mirrors the deleted applyProposalForResult's
+      // `catch { return {} }` — rather than leaving the tool-result unsent
+      // and the agent loop hung.
+      result = undefined
     }
   }
   resolveProposal(toolCallId, 'accepted', deps, result)

@@ -100,6 +100,26 @@ describe('navigate_to short-circuit', () => {
       output: expect.objectContaining({ success: false }),
     })
   })
+
+  it('emits the error tool-result (not a hang) when capability.apply rejects', async () => {
+    const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockRejectedValue(new Error('Request timeout'))
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    const addToolResult = vi.fn()
+
+    await expect(handleNavigateTool({
+      toolCallId: 'tc-3',
+      input: { view: 'cohort-edit', reason: 'x' },
+    }, { addToolResult })).resolves.toBeUndefined()
+
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'navigate_to',
+      toolCallId: 'tc-3',
+      output: expect.objectContaining({ success: false, applied: false }),
+    })
+    expect(addToolResult).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('navigate_to captures previous route for undo', () => {
@@ -527,6 +547,27 @@ describe('acceptProposal (shared accept pipeline)', () => {
     const addToolResult = vi.fn()
     await acceptProposal('does-not-exist', { addToolResult })
     expect(addToolResult).not.toHaveBeenCalled()
+  })
+
+  it('still resolves as accepted (no hang) when capability.apply rejects', async () => {
+    const bus = fakeBus()
+    bus.request.mockRejectedValue(new Error('Request timeout'))
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-reject', toolName: 'save_cohort', input: { name: 'x' } },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await expect(acceptProposal('tc-acc-reject', { addToolResult })).resolves.toBeUndefined()
+
+    expect(proposals.value['tc-acc-reject'].status).toBe('accepted')
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'save_cohort',
+      toolCallId: 'tc-acc-reject',
+      output: expect.objectContaining({ decision: 'accepted' }),
+    })
+    expect(addToolResult).toHaveBeenCalledTimes(1)
   })
 })
 
