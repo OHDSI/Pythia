@@ -32,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:fd21441dd65f0ef3fc7290e19ebba56a7bc535a77dea11a32ef94162731fc4de}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:cdfd62fdaaa701aacf1ec4cac24f86a338906078b3f9310d1a402eae00f4ab13}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -73,7 +73,7 @@ services:
 
   # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:fd21441dd65f0ef3fc7290e19ebba56a7bc535a77dea11a32ef94162731fc4de}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:cdfd62fdaaa701aacf1ec4cac24f86a338906078b3f9310d1a402eae00f4ab13}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -220,23 +220,21 @@ services:
       - 'for f in /scripts/*.sql; do echo "[db-init] $$f"; psql -v ON_ERROR_STOP=1 -f "$$f"; done'
     restart: "no"
 
-  # Atlas3 Caddy/Vite UI, built from third_party/Atlas3 so VITE_BAO_AGENT_ENABLED
-  # is baked in (the pythia FAB is build-time gated). The vendored ./Caddyfile is
-  # mounted over the image's copy; WEBAPI_HOST=trex points /WebAPI/* at the node.
+  # Atlas3 Caddy/Vite UI, built from third_party/Atlas3. Atlas3 externalized
+  # its config (the old VITE_* build args are gone): auth and the Pythia FAB
+  # are enabled at runtime via ./atlas-config-local.json, mounted over the
+  # image's /srv/atlas/config-local.json. The vendored ./Caddyfile is mounted
+  # over the image's copy; WEBAPI_HOST=trex points /WebAPI/* at the node.
   atlas3-frontend:
     build:
       context: ./third_party/Atlas3
       dockerfile: Dockerfile
-      args:
-        VITE_AUTH_ENABLED: "true"
-        VITE_AUTH_SKIP_LOGIN: "false"
-        VITE_AUTH_PROVIDERS: '[{"name":"Database","url":"user/login/db","ajax":true,"icon":"mdi-database","isUseCredentialsForm":true}]'
-        VITE_BAO_AGENT_ENABLED: ${VITE_BAO_AGENT_ENABLED:-true}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./atlas-config-local.json:/srv/atlas/config-local.json:ro
       - atlas3-caddy-data:/data
       # Pythia micro-frontend (built from this repo's `develop` branch) + the
       # single-spa-vue runtime, served at /atlas/pythia-plugin and /atlas/vendor.
