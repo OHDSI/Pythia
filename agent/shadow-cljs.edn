@@ -4,11 +4,13 @@
  {:fn
   {:target :esm
    :output-dir "out"
-   :modules {:handler {:exports {handler pythia.entry/handler}}}
+   :modules {:tools {:exports {tools pythia.agent-tools/tools
+                                instructions pythia.prompt/base-prompt}}}
    :js-options {:js-provider :import
-                :keep-as-import #{"ai" "@ai-sdk/amazon-bedrock"}}
+                :keep-as-import #{"eve/tools"}}
    :compiler-options {:infer-externs :auto}}
   :test
   {:target :node-test
    :output-to "out/test.cjs"
-   :ns-regexp "-test$"}}}
+   :ns-regexp "-test$"
+   :js-options {:resolve {"eve/tools" {:target :file :file "test/eve_tools_stub.mjs"}}}}}}

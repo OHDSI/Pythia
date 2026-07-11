@@ -5,13 +5,15 @@
    structural checks against the plan.
 
    The plan can arrive two ways:
-   - `ctx :plan` — the plan already active from a PRIOR turn (populated by
-     pythia.entry from the request body; works for the create_plan path,
-     where the client always round-trips before review_plan runs).
+   - `ctx :plan` — the plan already active from a PRIOR turn (rebuilt by
+     pythia.agent-tools' ->tool-ctx from the eve ToolContext's
+     metadata.plan; works for the create_plan path, where the client
+     always round-trips before review_plan runs).
    - `args :plan` — the model passes it directly when reviewing a plan
      select_plan_template just returned IN THE SAME TURN. select_plan_template
-     runs as an in-process server tool (see pythia.sdk's stepCountIs loop),
-     so its output never reaches ctx before review_plan executes in the same
+     runs as an in-process server tool within the same agentic step loop
+     (owned by trex's shared agent runtime, not this plugin), so its
+     output never reaches ctx before review_plan executes in the same
      request — the model must forward {document, steps} itself.
    `args :plan` takes priority when both are present, since it's always the
    fresher of the two."

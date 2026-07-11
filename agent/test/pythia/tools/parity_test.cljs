@@ -1,12 +1,18 @@
 (ns pythia.tools.parity-test
   "Tool-parity audit: the exposed CLJS tool-name set MUST equal the JVM
-   `tool-specs` name set (names are a frontend contract). Also asserts that
-   client-side proposal tools build SDK tools with NO `:execute`."
+   `tool-specs` name set (names are a frontend contract).
+
+   Task P3 deleted pythia.tools.registry (the Vercel AI SDK adapter) along
+   with entry.cljs/sdk.cljs — the eve `defineTool` adapter (pythia.agent-tools,
+   added in P2) is now the only tool-building path, and its
+   execute/clientOnly-presence assertions live in agent_tools_test.cljs. This
+   namespace keeps ONLY the NAME-parity part: the exposed CLJS tool-name set
+   still must equal the JVM baseline."
   (:require [cljs.test :refer [deftest is testing]]
             [clojure.set :as set]
             [pythia.tools :as tools]
             [pythia.tools.client :as client]
-            [pythia.tools.registry :as registry]))
+            [pythia.agent-tools :as agent-tools]))
 
 (def cljs-extension-names
   "Tools exposed by the CLJS Pythia agent beyond the bao JVM parity baseline."
@@ -85,19 +91,10 @@
   (doseq [t client/client-tools]
     (is (nil? (:run t)) (str (:name t) " must be schema-only (no :run)"))))
 
-(deftest client-sdk-tools-have-no-execute
-  (testing "each client tool maps to an SDK tool with NO execute"
-    (let [obj (registry/tools-object client/client-tools {})]
-      (doseq [{:keys [name]} client/client-tools]
-        (let [sdk-tool (unchecked-get obj name)]
-          (is (some? sdk-tool) (str name " present in tools-object"))
-          (is (undefined? (unchecked-get sdk-tool "execute"))
-              (str name " SDK tool must have NO execute")))))))
-
-(deftest server-sdk-tools-have-execute
-  (testing "each server tool maps to an SDK tool WITH execute"
-    (let [obj (registry/tools-object tools/server {})]
-      (doseq [{:keys [name]} tools/server]
-        (let [sdk-tool (unchecked-get obj name)]
-          (is (fn? (unchecked-get sdk-tool "execute"))
-              (str name " server SDK tool must have execute")))))))
+(deftest agent-tools-name-set-matches-tools-all
+  ;; Sanity check that the eve adapter (pythia.agent-tools, P2) exposes
+  ;; exactly the same name set as pythia.tools/all — the parity baseline
+  ;; above is meaningless if the two diverge. execute/clientOnly presence
+  ;; per tool is covered by agent_tools_test.cljs, not duplicated here.
+  (is (= (set (map :name tools/all))
+         (set (js/Object.keys agent-tools/tools)))))
