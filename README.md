@@ -36,6 +36,20 @@ route manifest, consumed by `src/route-manifest.ts`. Refresh it by running
 `npm run generate:routes` in the Atlas3 root and copying
 `src/router/routes.manifest.json` over the vendored file.
 
+## Capability manifest
+
+`agent/resources/capabilities.manifest.json` is a vendored copy of ATLAS
+v3.0's generated capability manifest — the single source of truth for the 19
+artifact-editing tool schemas the Pythia agent proposes (ATLAS owns those
+schemas). It is baked into the agent build at compile time via
+`shadow.resource/inline` in `agent/src/pythia/manifest.cljs` (`resources` is on
+`:source-paths` in `agent/shadow-cljs.edn`). The 3 conversation tools
+(`ask_user`, `create_plan`, `update_plan_step`) have no ATLAS executor and stay
+authored inline in `agent/src/pythia/tools/client.cljs`. Refresh the manifest by
+running `npm run generate:capabilities` in the Atlas3 root and copying
+`src/plugins/host/capabilities/capabilities.manifest.json` over the vendored
+file.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request to `main`

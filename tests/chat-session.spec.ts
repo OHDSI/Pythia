@@ -4,30 +4,72 @@ import {
   scanForPlanTemplateOutput, collectPlanTemplateCallIds,
   buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
   acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
+  proposalKind,
 } from '../src/chat-session'
+import { applyCreatePlan, activePlan, resetPlans } from '../src/plan-state'
 import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
+
+const fakeBus = () => ({
+  send: vi.fn(),
+  request: vi.fn(),
+  subscribe: vi.fn(),
+})
+
+describe('proposalKind (fidelity with ATLAS translateCapability)', () => {
+  it('maps each client tool name to the exact kind ATLAS translateCapability produces', () => {
+    const cases: Array<[string, Record<string, unknown>, string | null]> = [
+      ['add_criterion', { conceptId: 1, conceptName: 'x' }, 'addEntryEvent'],
+      ['add_criterion', { conceptId: 1, conceptName: 'x', group: 'inclusion' }, 'addInclusionRule'],
+      ['add_criterion', { conceptId: 1, conceptName: 'x', group: 'exclusion' }, 'addInclusionRule'],
+      ['add_criteria', { items: [] }, 'addInclusionRule'],
+      ['add_inclusion_rule', { events: [] }, 'addInclusionRule'],
+      ['set_entry_event', { conceptId: 1, conceptName: 'x' }, 'addEntryEvent'],
+      ['set_observation_window', { priorDays: 1, postDays: 1 }, 'setObservationPeriod'],
+      ['add_exit_criterion', { strategy: 'end_of_observation' }, 'setExitCriteria'],
+      ['set_censor_event', { conceptId: 1, conceptName: 'x' }, 'addCensoringCriterion'],
+      ['navigate_to', { view: 'cohort-edit' }, 'navigate'],
+      ['save_cohort', { name: 'x' }, 'saveCohort'],
+      ['create_concept_set', { name: 'x', items: [] }, 'addConceptSet'],
+      ['create_standalone_concept_set', { name: 'x', items: [] }, 'createStandaloneConceptSet'],
+      ['create_feature_analysis', { name: 'x', type: 'PRESET' }, 'createFeatureAnalysis'],
+      ['create_characterization', { name: 'x' }, 'createCharacterization'],
+      ['create_pathway', { name: 'x' }, 'createPathway'],
+      ['create_incidence_rate', { name: 'x' }, 'createIncidenceRate'],
+      ['update_concept_set', { id: 1 }, 'updateConceptSet'],
+      ['update_feature_analysis', { id: 1 }, 'updateFeatureAnalysis'],
+      ['update_characterization', { id: 1 }, 'updateCharacterization'],
+      ['update_pathway', { id: 1 }, 'updatePathway'],
+      ['update_incidence_rate', { id: 1 }, 'updateIncidenceRate'],
+      ['not_a_real_tool', {}, null],
+    ]
+    for (const [name, args, expected] of cases) {
+      expect(proposalKind(name, args)).toBe(expected)
+    }
+  })
+})
 
 describe('navigate_to short-circuit', () => {
   beforeEach(() => {
     for (const k of Object.keys(proposals.value)) delete proposals.value[k]
   })
 
-  it('does NOT create a proposal card for navigate_to', async () => {
+  it('does NOT create a proposal card for navigate_to, and delegates to capability.apply', async () => {
     const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: true, kind: 'navigate' })
+    setHostBridge({ bus, applyProposal: vi.fn() })
     const addToolResult = vi.fn()
-    const applyProposalSpy = vi.fn()
 
-    handleNavigateTool({
+    await handleNavigateTool({
       toolCallId: 'tc-1',
       input: { view: 'cohort-edit', id: 42, reason: 'open cohort 42' },
-    }, { addToolResult, applyProposal: applyProposalSpy })
+    }, { addToolResult })
 
     expect(proposals.value['tc-1']).toBeUndefined()
-    expect(applyProposalSpy).toHaveBeenCalledWith({
-      kind: 'navigate',
-      route: { name: 'cohort-edit', params: { id: 42 } },
-      reason: 'open cohort 42',
+    expect(bus.request).toHaveBeenCalledWith('capability.apply', {
+      name: 'navigate_to',
+      args: { view: 'cohort-edit', id: 42, reason: 'open cohort 42' },
     })
     expect(addToolResult).toHaveBeenCalledWith({
       tool: 'navigate_to',
@@ -40,22 +82,43 @@ describe('navigate_to short-circuit', () => {
     })
   })
 
-  it('rejects navigate_to with an invalid view', async () => {
+  it('rejects navigate_to when ATLAS reports the view was not applied', async () => {
     const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: false })
+    setHostBridge({ bus, applyProposal: vi.fn() })
     const addToolResult = vi.fn()
-    const applyProposalSpy = vi.fn()
 
-    handleNavigateTool({
+    await handleNavigateTool({
       toolCallId: 'tc-2',
       input: { view: 'not-a-real-view', reason: 'x' },
-    }, { addToolResult, applyProposal: applyProposalSpy })
+    }, { addToolResult })
 
-    expect(applyProposalSpy).not.toHaveBeenCalled()
     expect(addToolResult).toHaveBeenCalledWith({
       tool: 'navigate_to',
       toolCallId: 'tc-2',
       output: expect.objectContaining({ success: false }),
     })
+  })
+
+  it('emits the error tool-result (not a hang) when capability.apply rejects', async () => {
+    const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockRejectedValue(new Error('Request timeout'))
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    const addToolResult = vi.fn()
+
+    await expect(handleNavigateTool({
+      toolCallId: 'tc-3',
+      input: { view: 'cohort-edit', reason: 'x' },
+    }, { addToolResult })).resolves.toBeUndefined()
+
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'navigate_to',
+      toolCallId: 'tc-3',
+      output: expect.objectContaining({ success: false, applied: false }),
+    })
+    expect(addToolResult).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -68,14 +131,17 @@ describe('navigate_to captures previous route for undo', () => {
 
   it('records previous route when sessionRouteContext is set', async () => {
     const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: true })
+    setHostBridge({ bus, applyProposal: vi.fn() })
     sessionRouteContext.value = {
       routeName: 'cohorts',
       routeParams: {},
       artifact: null,
     }
-    handleNavigateTool(
+    await handleNavigateTool(
       { toolCallId: 'tc-nav', input: { view: 'cohort-edit', id: 42, reason: 'r' } },
-      { addToolResult: () => {}, applyProposal: () => {} }
+      { addToolResult: () => {} }
     )
     expect(lastNavigation.value).not.toBeNull()
     expect(lastNavigation.value?.toName).toBe('cohort-edit')
@@ -84,21 +150,27 @@ describe('navigate_to captures previous route for undo', () => {
 
   it('records null previous when sessionRouteContext is missing', async () => {
     const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: true })
+    setHostBridge({ bus, applyProposal: vi.fn() })
     sessionRouteContext.value = null
-    handleNavigateTool(
+    await handleNavigateTool(
       { toolCallId: 'tc-nav-2', input: { view: 'cohort-edit', id: 1, reason: 'r' } },
-      { addToolResult: () => {}, applyProposal: () => {} }
+      { addToolResult: () => {} }
     )
     expect(lastNavigation.value?.previous).toBeNull()
   })
 
   it('reports undoAvailable: false in tool result when no previous', async () => {
     const { handleNavigateTool } = await import('../src/chat-session')
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: true })
+    setHostBridge({ bus, applyProposal: vi.fn() })
     sessionRouteContext.value = null
     const addToolResult = vi.fn()
-    handleNavigateTool(
+    await handleNavigateTool(
       { toolCallId: 'tc-nav-3', input: { view: 'cohort-edit', id: 1, reason: 'r' } },
-      { addToolResult, applyProposal: () => {} }
+      { addToolResult }
     )
     expect(addToolResult).toHaveBeenCalledWith({
       tool: 'navigate_to',
@@ -378,40 +450,29 @@ describe('autoApproveProposals persistence', () => {
 })
 
 describe('acceptProposal (shared accept pipeline)', () => {
-  const fakeBus = () => ({
-    send: vi.fn(),
-    request: vi.fn(),
-    subscribe: vi.fn(),
-  })
-
   beforeEach(() => {
     for (const k of Object.keys(proposals.value)) delete proposals.value[k]
   })
 
-  it('applies a non-ID-returning proposal via bus.send and resolves accepted', async () => {
+  it('delegates a non-ID-returning proposal to capability.apply and resolves accepted', async () => {
     const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: true, kind: 'addInclusionRule' })
     setHostBridge({ bus, applyProposal: vi.fn() })
+    const args = {
+      name: 'Test',
+      group: 'inclusion',
+      logic: 'AND',
+      items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
+    }
     recordProposal(
-      {
-        toolCallId: 'tc-acc-1',
-        toolName: 'add_criteria',
-        input: {
-          name: 'Test',
-          group: 'inclusion',
-          logic: 'AND',
-          items: [{ conceptId: 1, conceptName: 'x', domain: 'Condition' }],
-        },
-      },
+      { toolCallId: 'tc-acc-1', toolName: 'add_criteria', input: args },
       { addToolResult: () => {} }
     )
 
     const addToolResult = vi.fn()
     await acceptProposal('tc-acc-1', { addToolResult })
 
-    expect(bus.send).toHaveBeenCalledWith(
-      'cohort.applyProposal',
-      expect.objectContaining({ proposal: expect.objectContaining({ kind: 'addInclusionRule' }) })
-    )
+    expect(bus.request).toHaveBeenCalledWith('capability.apply', { name: 'add_criteria', args })
     expect(proposals.value['tc-acc-1'].status).toBe('accepted')
     expect(addToolResult).toHaveBeenCalledWith({
       tool: 'add_criteria',
@@ -420,22 +481,20 @@ describe('acceptProposal (shared accept pipeline)', () => {
     })
   })
 
-  it('applies an ID-returning proposal via bus.request and forwards the saved id', async () => {
+  it('delegates an ID-returning proposal to capability.apply and forwards the saved id', async () => {
     const bus = fakeBus()
-    bus.request.mockResolvedValue({ id: 42, name: 'Saved Cohort' })
+    bus.request.mockResolvedValue({ applied: true, kind: 'saveCohort', id: 42, name: 'Saved Cohort' })
     setHostBridge({ bus, applyProposal: vi.fn() })
+    const args = { name: 'Saved Cohort' }
     recordProposal(
-      { toolCallId: 'tc-acc-2', toolName: 'save_cohort', input: { name: 'Saved Cohort' } },
+      { toolCallId: 'tc-acc-2', toolName: 'save_cohort', input: args },
       { addToolResult: () => {} }
     )
 
     const addToolResult = vi.fn()
     await acceptProposal('tc-acc-2', { addToolResult })
 
-    expect(bus.request).toHaveBeenCalledWith(
-      'cohort.applyProposal',
-      expect.objectContaining({ proposal: expect.objectContaining({ kind: 'saveCohort' }) })
-    )
+    expect(bus.request).toHaveBeenCalledWith('capability.apply', { name: 'save_cohort', args })
     expect(addToolResult).toHaveBeenCalledWith({
       tool: 'save_cohort',
       toolCallId: 'tc-acc-2',
@@ -443,19 +502,76 @@ describe('acceptProposal (shared accept pipeline)', () => {
     })
   })
 
+  it('does not forward an id when capability.apply reports applied: false', async () => {
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: false })
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-4', toolName: 'save_cohort', input: { name: 'x' } },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-4', { addToolResult })
+
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'save_cohort',
+      toolCallId: 'tc-acc-4',
+      output: expect.not.objectContaining({ savedId: expect.anything() }),
+    })
+  })
+
+  it('advances a plan step linked to the kind capability.apply reports', async () => {
+    resetPlans()
+    applyCreatePlan({
+      title: 'Test plan',
+      steps: [{ id: 's1', label: 'Save the cohort', linkedProposalKind: 'saveCohort' }],
+    })
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: true, kind: 'saveCohort', id: 7, name: 'Saved' })
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-5', toolName: 'save_cohort', input: { name: 'Saved' } },
+      { addToolResult: () => {} }
+    )
+
+    await acceptProposal('tc-acc-5', { addToolResult: () => {} })
+
+    // The plan's only step is now done, so applyUpdatePlanStep archives it —
+    // activePlan becomes null and the plan moves to history as 'completed'.
+    expect(activePlan.value).toBeNull()
+    resetPlans()
+  })
+
   it('does nothing for an unknown toolCallId', async () => {
     const addToolResult = vi.fn()
     await acceptProposal('does-not-exist', { addToolResult })
     expect(addToolResult).not.toHaveBeenCalled()
   })
+
+  it('still resolves as accepted (no hang) when capability.apply rejects', async () => {
+    const bus = fakeBus()
+    bus.request.mockRejectedValue(new Error('Request timeout'))
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-reject', toolName: 'save_cohort', input: { name: 'x' } },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await expect(acceptProposal('tc-acc-reject', { addToolResult })).resolves.toBeUndefined()
+
+    expect(proposals.value['tc-acc-reject'].status).toBe('accepted')
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'save_cohort',
+      toolCallId: 'tc-acc-reject',
+      output: expect.objectContaining({ decision: 'accepted' }),
+    })
+    expect(addToolResult).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('recordAndMaybeAutoAccept', () => {
-  const fakeBus = () => ({
-    send: vi.fn(),
-    request: vi.fn(),
-    subscribe: vi.fn(),
-  })
 
   beforeEach(() => {
     for (const k of Object.keys(proposals.value)) delete proposals.value[k]
