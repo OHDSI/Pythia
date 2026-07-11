@@ -49,6 +49,12 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The agent's sync step (gen-wrappers/gen-instructions) runs under Deno;
+      # harmless for the frontend build.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Build ${{ matrix.name }}
         working-directory: ${{ matrix.build_dir }}
         run: |
