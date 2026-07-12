@@ -11,10 +11,14 @@ export default defineEval({
     );
     t.succeeded();
 
-    // Capture every search_concepts output via a predicate matcher.
+    // Topical assertion: the agent did search for hypertension.
+    t.calledTool("search_concepts", { input: { query: /hypertens/i } });
+
+    // Capture EVERY search_concepts output (no input constraint, so a
+    // rephrased second search still lands in the grounding set — eve's
+    // matcher short-circuits on input before evaluating output).
     const outputs: unknown[] = [];
     t.calledTool("search_concepts", {
-      input: { query: /hypertens/i },
       output: (v: unknown) => {
         outputs.push(v);
         return true;
