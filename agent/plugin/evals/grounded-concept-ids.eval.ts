@@ -36,6 +36,11 @@ export default defineEval({
       .filter((c) => c.name === "search_concepts")
       .map((c) => c.output);
 
+    // Asymmetric windows, deliberately: the allow-set regex (4-10 digits over
+    // stringified outputs) over-collects (record counts, years) — it can only
+    // ever make the subset check MORE permissive, never false-fail. The reply
+    // side floors at 6 digits so prose years ("2020") don't count as concept
+    // IDs; the cost is that a fabricated 4-5 digit ID slips past this check.
     const returnedIds = new Set(JSON.stringify(outputs).match(/\d{4,10}/g) ?? []);
     const quotedIds = String(t.reply).match(/\b\d{6,10}\b/g) ?? [];
     t.check(

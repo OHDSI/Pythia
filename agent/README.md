@@ -175,7 +175,10 @@ agent name matches the invoking directory's `package.json` name
 but the agent's mounted name is `pythia`, so `run-evals.sh` invokes eve from
 `plugin/eval-root/` — a tiny eval-project root whose `package.json` is named
 `pythia`, with symlinks back to the shared `plugin/evals/` and `plugin/.eve/`.
-Eval sources and artifacts stay where they always were.
+Eval sources and artifacts stay where they always were. Those symlinks
+require a POSIX checkout — on Windows, enable `core.symlinks` (and re-clone,
+or `git config core.symlinks true && git checkout -- plugin/eval-root`) or
+the eval-root fixture breaks (eve finds zero evals).
 
 ### Auth: go through the WebAPI proxy, not :8001 directly
 

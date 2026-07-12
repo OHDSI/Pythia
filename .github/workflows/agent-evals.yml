@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 3 * * *"
 
+permissions:
+  contents: read
+
 jobs:
   evals:
     runs-on: ubuntu-latest
@@ -39,7 +42,7 @@ jobs:
 
       - name: Boot the stack
         if: steps.gate.outputs.skip != 'true'
-        run: docker compose up -d
+        run: docker compose up -d --wait
 
       - name: Wait for the agent mount
         if: steps.gate.outputs.skip != 'true'
@@ -58,10 +61,23 @@ jobs:
           docker compose logs --tail 100
           exit 1
 
+      - name: Wait for WebAPI
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          # The agent mount can be up while the embedded Spring WebAPI is
+          # still migrating — tool calls need WebAPI itself to answer.
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 5 http://localhost:8080/WebAPI/info >/dev/null && exit 0
+            sleep 5
+          done
+          echo "WebAPI never became ready" >&2
+          docker compose logs --tail 100 trex
+          exit 1
+
       - uses: actions/setup-node@v4
         if: steps.gate.outputs.skip != 'true'
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install eval toolchain
         if: steps.gate.outputs.skip != 'true'
