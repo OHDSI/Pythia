@@ -44,11 +44,17 @@ jobs:
       - name: Wait for the agent mount
         if: steps.gate.outputs.skip != 'true'
         run: |
+          # Poll the agent mount directly on :8001 — 401 (auth-gated) proves the
+          # plugin route is alive. The canonical /WebAPI proxy route 500s on
+          # bodyless GETs in the pinned trex image (fixed in
+          # trex@fix/agent-proxy-get-body); run-evals.sh handles routing around
+          # that at eval time.
           for _ in $(seq 1 60); do
-            curl -skf --max-time 5 https://localhost/WebAPI/trex/pythia/eve/v1/health && exit 0
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:8001/plugins/ohdsi/pythia/eve/v1/health || true)
+            if [ "$code" = "200" ] || [ "$code" = "401" ]; then exit 0; fi
             sleep 5
           done
-          echo "agent mount never became healthy" >&2
+          echo "agent mount never became healthy (last status: $code)" >&2
           docker compose logs --tail 100
           exit 1
 

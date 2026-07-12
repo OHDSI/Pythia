@@ -28,16 +28,44 @@ const upstreamUrl = new URL(UPSTREAM);
 
 const basePath = upstreamUrl.pathname.replace(/\/$/, "");
 
+// Hop-by-hop headers must not be forwarded across a proxy hop (RFC 7230 §6.1).
+const HOP_BY_HOP = new Set([
+  "connection",
+  "transfer-encoding",
+  "keep-alive",
+  "upgrade",
+]);
+
+function stripHopByHop(headers) {
+  const copy = { ...headers };
+  for (const name of HOP_BY_HOP) delete copy[name];
+  return copy;
+}
+
 const server = http.createServer((req, res) => {
   const target = new URL(basePath + req.url, upstreamUrl.origin);
-  const headers = { ...req.headers, host: upstreamUrl.host, apikey: APIKEY };
+  const headers = {
+    ...stripHopByHop(req.headers),
+    host: upstreamUrl.host,
+    apikey: APIKEY,
+  };
+
+  let upstreamRes;
 
   const upstreamReq = http.request(
     target,
     { method: req.method, headers },
     (upstream) => {
-      res.writeHead(upstream.statusCode || 502, upstream.headers);
+      upstreamRes = upstream;
+      res.writeHead(upstream.statusCode || 502, stripHopByHop(upstream.headers));
       upstream.pipe(res);
+
+      // A dropped upstream connection mid-response must not crash the
+      // sidecar — contain the damage to this one request/response pair.
+      upstream.on("error", (err) => {
+        console.error(`eval-auth-proxy: upstream response error: ${err.message}`);
+        res.destroy(err);
+      });
     },
   );
 
@@ -46,6 +74,18 @@ const server = http.createServer((req, res) => {
       res.writeHead(502, { "content-type": "text/plain" });
     }
     res.end(`eval-auth-proxy: upstream error: ${err.message}`);
+  });
+
+  // A client aborting mid-request (e.g. NDJSON body cut short) must not
+  // crash the sidecar and take every remaining eval down with it.
+  req.on("error", (err) => {
+    console.error(`eval-auth-proxy: client request error: ${err.message}`);
+    upstreamReq.destroy(err);
+  });
+
+  res.on("error", (err) => {
+    console.error(`eval-auth-proxy: client response error: ${err.message}`);
+    upstreamRes?.destroy(err);
   });
 
   req.pipe(upstreamReq);
