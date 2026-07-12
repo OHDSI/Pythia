@@ -32,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:27540160b301b9f152179220e88ab52226f5f09d6318abb3e5151b974a7dd7aa}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:72165aee44a7a1d7203763dc3d1ad3019c02d020013afcb9adef581d238e3eb2}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -73,7 +73,7 @@ services:
 
   # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:27540160b301b9f152179220e88ab52226f5f09d6318abb3e5151b974a7dd7aa}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:72165aee44a7a1d7203763dc3d1ad3019c02d020013afcb9adef581d238e3eb2}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -97,7 +97,8 @@ services:
       - trex-claude-config:/home/node/.claude
       - trex-gh-config:/home/node/.config/gh
       # Pythia agent (ClojureScript) as a mounted Deno function.
-      # Served at /plugins/trex/pythia/* on :8001. See agent/README.md.
+      # Served at /plugins/ohdsi/pythia/* on :8001 (@ohdsi is a trusted
+      # plugin scope since trex #141). See agent/README.md.
       - ./agent/plugin:/usr/src/plugins-dev/pythia:ro
     environment:
       <<: *swarm-config
