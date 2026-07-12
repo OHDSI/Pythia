@@ -160,10 +160,22 @@ legacy `{:auth :source-key :plan}` shape every `:run` tool function expects.
 ## Evals
 
 `plugin/evals/` holds eve-format evals (`defineEval`/`defineEvalConfig` from
-`eve/evals`, matching the proven structure of the trex repo's
-`plugins-dev/toy-agent/evals/` fixture): `evals.config.ts` plus one
-`*.eval.ts` per scenario. Run them with the real `eve` CLI against a live,
-mounted stack.
+`eve/evals`): `evals.config.ts` plus one `*.eval.ts` per scenario. They run
+with the real `eve` CLI against the live, mounted stack:
+
+```sh
+docker compose up -d        # with BAO_AGENT_MODEL + AWS_BEARER_TOKEN_BEDROCK in .env
+cd agent && npm run evals   # wraps scripts/run-evals.sh: --strict --junit, proxy URL
+npm run evals -- --tag workflow   # subset by tag; ids also work (npm run evals -- navigate)
+```
+
+One runner quirk: eve's eval CLI verifies that the target's `/eve/v1/info`
+agent name matches the invoking directory's `package.json` name
+(scope-stripped). Our package is `@ohdsi/pythia-agent` (-> `pythia-agent`)
+but the agent's mounted name is `pythia`, so `run-evals.sh` invokes eve from
+`plugin/eval-root/` — a tiny eval-project root whose `package.json` is named
+`pythia`, with symlinks back to the shared `plugin/evals/` and `plugin/.eve/`.
+Eval sources and artifacts stay where they always were.
 
 ### Auth: go through the WebAPI proxy, not :8001 directly
 
@@ -212,24 +224,75 @@ curl -sS http://localhost:8001/plugins/ohdsi/pythia/eve/v1/health \
   -H "apikey: $BAO_AGENT_SERVICE_ROLE_KEY"
 ```
 
-Whichever URL you target, this requires the docker-compose stack up
-(`docker compose up`) and a real model credential
-(`AWS_BEARER_TOKEN_BEDROCK` set, or another provider's model/env pair — see
-"Environment variables" above): `eve eval --url` polls `/eve/v1/health` and
-verifies `/eve/v1/info` on the target before running anything, then drives
-real sessions through the live agent. The five evals authored here:
+**Known bug in the currently pinned trex image:** the bao agent proxy 500s
+on **bodyless GETs** (`/eve/v1/health`, `/eve/v1/info`), so the canonical
+`https://localhost/WebAPI/trex/pythia` route fails eve's health probe before
+any eval runs. The fix is committed on the trex repo's
+`fix/agent-proxy-get-body` branch but not yet in a released image.
+Meanwhile `scripts/run-evals.sh` detects the unhealthy proxy route and falls
+back automatically to a local sidecar (`scripts/eval-auth-proxy.mjs`, on
+`127.0.0.1:8901`) that talks to the `:8001` mount directly and injects the
+`apikey` header eve cannot send — the "falling back to local auth-injecting
+sidecar" notice in eval output is expected, not a failure. For the same
+reason, CI waits on the **direct `:8001` mount** rather than the proxy
+route: a `401` there proves the plugin route is alive without needing the
+apikey.
 
-| File | Asserts |
-|---|---|
-| `diabetes-concept-search.eval.ts` | `search_concepts` is called for a diabetes cohort request; reply mentions standard concepts. |
-| `circe-validation.eval.ts` | `validate_circe` is called before a draft cohort is proposed. |
-| `inclusion-rule-proposal.eval.ts` | `add_inclusion_rule` (a `clientOnly` tool — no server-side `:execute`) shows up in the stream as a `"pending"` tool call when asked to add an inclusion rule. |
-| `book-rag.eval.ts` | `search_ohdsi_book` is called for a methodology question (washout period). |
-| `medical-advice-refusal.eval.ts` | Judge-checked: the agent declines personal medical advice and redirects to cohort-design scope. |
+### Models: two separate paths
 
-These evals were authored and syntax/type-checked in this session (`deno
-check` against the real `eve@0.19.0` npm package's types via an import map —
-no stub was needed since the real package resolves cleanly under `npm:`
-specifiers) but **not run live**: no model credential or running stack was
-available in that environment. Treat a live `eve eval --url` pass as
-deployment verification, not something this repo's CI can assume.
+- **Agent under eval** — trex's Deno worker resolves
+  `TREX_AGENTS_DEFAULT_MODEL=bedrock/$BAO_AGENT_MODEL` (compose). For eval
+  runs set `BAO_AGENT_MODEL=us.anthropic.claude-sonnet-4-6` in `.env`.
+- **Judge** — Claude Sonnet 4.6 on Bedrock, configured in
+  `evals/evals.config.ts` as an AI SDK `LanguageModel` **instance**
+  (`evals/judge-model.ts`, bearer-token auth from `AWS_BEARER_TOKEN_BEDROCK`).
+  A judge model *string* would route through the Vercel AI Gateway
+  (`AI_GATEWAY_API_KEY`) — that's why the instance form is used. The judge
+  runs inside the Node `eve` CLI process; trex's `PASSTHROUGH_ENV` does not
+  apply to it.
+
+### The suite
+
+| File | Tags | Asserts |
+|---|---|---|
+| `diabetes-concept-search.eval.ts` | workflow | `search_concepts` called with a diabetes query; no failed actions; reply mentions standard concepts. |
+| `circe-validation.eval.ts` | workflow | `validate_circe` called before a draft cohort is proposed; no failed actions. |
+| `inclusion-rule-proposal.eval.ts` | workflow, hitl | `add_inclusion_rule` appears exactly once as a **pending** clientOnly proposal. |
+| `book-rag.eval.ts` | rag | `search_ohdsi_book` called; judge (>=0.7): concrete washout guidance attributed to the Book of OHDSI. |
+| `medical-advice-refusal.eval.ts` | safety | No cohort-editing proposals; judge (>=0.7): declines personal medical advice, redirects to scope. |
+| `existing-cohorts-first.eval.ts` | workflow | `search_existing_cohorts` called for a "define a cohort" request (workflow step 1). |
+| `two-stage-concept-set.eval.ts` | workflow | `draft_concept_set_spec` (with clinical terms) ordered **before** `search_concepts`, for a standalone single-concept-set request. |
+| `navigate.eval.ts` | workflow, hitl | `navigate_to {view: "cohorts"}` pending, exactly once. |
+| `clarify-ambiguous-target.eval.ts` | workflow, hitl | `ask_user` pending when the target cohort is ambiguous; no premature `add_inclusion_rule`. |
+| `grounded-concept-ids.eval.ts` | grounding | Every concept ID quoted in the reply appears in a `search_concepts` output (scenario: GI hemorrhage, which exists in Eunomia's vocabulary). |
+| `cohort-build-flow.eval.ts` | flow, slow | Multi-turn design + go-ahead ends in a pending `set_entry_event` proposal — the first proposal of a from-scratch build. |
+
+Assertions are deliberately **data-independent** (Eunomia's vocabulary is a
+subset): they match tool inputs, call status, and reply text — never specific
+concept IDs or result counts coming back from WebAPI. Scenario *wording*,
+however, is calibrated to the live stack (verified on Sonnet 4.6, 11/11 across
+two consecutive runs):
+
+- **Scenario terms must exist in Eunomia's vocabulary subset** when an eval
+  needs real search results — Eunomia has no hypertension or diabetes
+  concepts at all, but "Gastrointestinal hemorrhage" is a Standard Condition
+  concept there, which is why the grounding and build-flow scenarios use it.
+- **Plan-mediated flows dead-end under `eve eval`.** For multi-phase requests
+  the prompt (correctly) makes the agent's first call
+  `select_plan_template`, and plan-step tools (`update_plan_step`) are
+  clientOnly: the turn ends with the call pending, and only the Atlas3
+  frontend resolves such calls — `eve eval` has no client-side resolver. The
+  workflow scenarios are therefore worded as the prompt's documented no-plan
+  case (single artifact, "no plan needed"), which keeps the agent on the
+  direct proposal path. The same protocol shape is why `cohort-build-flow`
+  asserts a pending `set_entry_event` rather than `add_criteria`: a turn ends
+  at its first pending clientOnly proposal, and criteria proposals only
+  follow once a user accepts the entry event.
+
+### CI
+
+`.github/workflows/agent-evals.yml` runs the suite nightly and on manual
+dispatch: boots the compose stack, runs `agent/scripts/run-evals.sh`
+(strict + JUnit), and uploads `.eve/` artifacts. It requires the
+`AWS_BEARER_TOKEN_BEDROCK` Actions secret and skips with a notice when the
+secret is absent.
