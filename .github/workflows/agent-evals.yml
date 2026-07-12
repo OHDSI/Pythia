@@ -1,0 +1,72 @@
+name: agent-evals
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AWS_REGION: us-east-1
+      # Agent under eval AND judge both run Claude Sonnet 4.6 on Bedrock.
+      BAO_AGENT_MODEL: us.anthropic.claude-sonnet-4-6
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secret is configured
+        id: gate
+        run: |
+          if [ -z "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::AWS_BEARER_TOKEN_BEDROCK secret not set — skipping eval run"
+          fi
+
+      - name: Write .env for compose + eval runner
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          {
+            echo "AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}"
+            echo "AWS_REGION=$AWS_REGION"
+            echo "BAO_AGENT_MODEL=$BAO_AGENT_MODEL"
+          } > .env
+
+      - name: Boot the stack
+        if: steps.gate.outputs.skip != 'true'
+        run: docker compose up -d
+
+      - name: Wait for the agent mount
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          for _ in $(seq 1 60); do
+            curl -skf --max-time 5 https://localhost/WebAPI/trex/pythia/eve/v1/health && exit 0
+            sleep 5
+          done
+          echo "agent mount never became healthy" >&2
+          docker compose logs --tail 100
+          exit 1
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: 22
+
+      - name: Install eval toolchain
+        if: steps.gate.outputs.skip != 'true'
+        run: npm ci
+        working-directory: agent/plugin
+
+      - name: Run evals (strict, Sonnet 4.6 judge)
+        if: steps.gate.outputs.skip != 'true'
+        run: bash agent/scripts/run-evals.sh
+
+      - name: Upload eval artifacts
+        if: always() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-eval-artifacts
+          path: |
+            agent/plugin/.eve/
+          retention-days: 14
