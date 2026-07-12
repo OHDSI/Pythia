@@ -1,19 +1,10 @@
 name: Publish Pythia packages
 
-# Publishes the Pythia frontend to GitHub Packages under @ohdsi:
+# Publishes both Pythia artifacts to GitHub Packages under @ohdsi:
 #   - @ohdsi/pythia-plugin  (frontend: vite SystemJS bundle -> dist/)
-# d2e's atlas plugin installs it at image-build time (like @ohdsi/atlas3).
-#
-# The backend (agent/plugin, shadow-cljs Deno agent) is BUILD-ONLY here:
-# since the agents-port it is named @trex/pythia — trex's agents runtime only
-# mounts agents plugins under the @trex scope (auth requirement) — but GitHub
-# Packages only accepts packages scoped to the repo owner (@ohdsi), so
-# GITHUB_TOKEN publishes of @trex/* 403 ("installation does not exist"), and
-# renaming the manifest at publish time would produce a package the agents
-# runtime refuses to mount. The build still runs on every push (it is the only
-# CI coverage of `npm run dist`). Re-enable publishing (matrix `publish` flag)
-# once a registry that can host @trex/* is wired in (e.g. the d2e Azure feed
-# plus a token secret).
+#   - @ohdsi/pythia-agent    (backend: shadow-cljs Deno fn -> agent/plugin/)
+# d2e installs them at image-build time (the atlas plugin pulls pythia-plugin
+# like @ohdsi/atlas3; the trex image pulls pythia-agent via PLUGINS_FROM_REGISTRY).
 #
 # Branch builds publish a prerelease version under the `develop` dist-tag; a
 # `v*` git tag publishes that exact version under `latest`.
@@ -39,14 +30,10 @@ jobs:
             build_dir: .
             build_cmd: npm run build
             publish_dir: .
-            publish: true
           - name: pythia-agent        # backend (shadow-cljs needs a JDK)
             build_dir: agent
             build_cmd: npm run dist
             publish_dir: agent/plugin
-            # Build-only: @trex/pythia cannot be published to GitHub Packages
-            # under @ohdsi — see the header comment.
-            publish: false
     steps:
       - uses: actions/checkout@v4
 
@@ -75,7 +62,6 @@ jobs:
           ${{ matrix.build_cmd }}
 
       - name: Compute version + dist-tag
-        if: ${{ matrix.publish }}
         id: ver
         working-directory: ${{ matrix.publish_dir }}
         run: |
@@ -92,7 +78,6 @@ jobs:
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish ${{ matrix.name }}
-        if: ${{ matrix.publish }}
         working-directory: ${{ matrix.publish_dir }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
