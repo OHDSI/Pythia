@@ -15,6 +15,16 @@
     "url": "git+https://github.com/OHDSI/trex-dx.git",
     "directory": "agent/plugin"
   },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^3",
+    "ai": "^7",
+    "eve": "^0.19.0",
+    "typescript": "^5",
+    "zod": "^4"
+  },
   "trex": {
     "agents": [
       {
