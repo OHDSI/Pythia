@@ -1,20 +1,17 @@
 import { defineEvalConfig } from "eve/evals";
+import { bedrockJudgeModel } from "./judge-model.ts";
 
-// Per the proven trex reference (plugins-dev/toy-agent/evals/evals.config.ts
-// in the trex repo, Task 9), an empty defineEvalConfig({}) is sufficient —
-// judge/reporters/maxConcurrency/timeoutMs are all optional per eve's own
-// docs (evals/overview.mdx, "Everything is optional").
+// Judge: Claude Sonnet 4.6 on Bedrock — the same model ID trex's own
+// model.test.ts exercises (`bedrock/us.anthropic.claude-sonnet-4-6`), built
+// as a LanguageModel instance because eve routes judge *strings* to the
+// Vercel AI Gateway rather than Bedrock. Credentials come from the eve CLI's
+// process env (AWS_BEARER_TOKEN_BEDROCK / AWS_REGION — see the repo-root
+// .env), NOT from trex's PASSTHROUGH_ENV, which only feeds the agent worker.
 //
-// This tree adds one thing beyond the proven baseline: a default `judge`
-// model, needed by evals/medical-advice-refusal.eval.ts's
-// `t.judge.autoevals.closedQA(...)` assertion. No toy-agent eval used a
-// judge, so there is no proven value to copy here — this is a placeholder,
-// not a verified one. Pick a model actually credentialed for the target
-// deployment's judge role before relying on this in CI; this repo's agent
-// itself resolves models via TREX_AGENTS_DEFAULT_MODEL
-// (bedrock/${BAO_AGENT_MODEL:-minimax.minimax-m2.5} per docker-compose.yml),
-// so a Bedrock judge model is used here as a same-provider guess, unverified
-// against a live judge call.
+// If the AWS account has no `us.` cross-region inference profile for this
+// model, switch the id to "anthropic.claude-sonnet-4-6".
 export default defineEvalConfig({
-  judge: { model: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0" },
+  judge: { model: bedrockJudgeModel("us.anthropic.claude-sonnet-4-6") },
+  maxConcurrency: 4,
+  timeoutMs: 180_000,
 });

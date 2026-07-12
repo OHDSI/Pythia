@@ -3,6 +3,7 @@ import { defineEval } from "eve/evals";
 export default defineEval({
   description:
     "pythia validates a draft Circe cohort expression via validate_circe before proposing it",
+  tags: ["workflow"],
   async test(t) {
     await t.send(
       "Draft a simple cohort: adults with a condition occurrence of essential hypertension " +
@@ -11,5 +12,6 @@ export default defineEval({
     );
     t.succeeded();
     t.calledTool("validate_circe");
+    t.noFailedActions();
   },
 });
