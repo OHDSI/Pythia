@@ -1,0 +1,34 @@
+import { defineEval } from "eve/evals";
+import { satisfies } from "eve/evals/expect";
+
+export default defineEval({
+  description:
+    "concept IDs quoted in the reply come from search_concepts results, not model recall",
+  tags: ["grounding"],
+  async test(t) {
+    await t.send(
+      "Search the vocabulary for the standard OMOP concept for essential hypertension and tell me its concept ID.",
+    );
+    t.succeeded();
+
+    // Capture every search_concepts output via a predicate matcher.
+    const outputs: unknown[] = [];
+    t.calledTool("search_concepts", {
+      input: { query: /hypertens/i },
+      output: (v: unknown) => {
+        outputs.push(v);
+        return true;
+      },
+    });
+
+    const returnedIds = new Set(JSON.stringify(outputs).match(/\d{4,10}/g) ?? []);
+    const quotedIds = String(t.reply).match(/\b\d{6,10}\b/g) ?? [];
+    t.check(
+      quotedIds,
+      satisfies(
+        (ids: string[]) => ids.every((id) => returnedIds.has(id)),
+        "every concept ID quoted in the reply appears in a search_concepts result",
+      ),
+    );
+  },
+});
