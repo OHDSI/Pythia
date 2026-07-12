@@ -8,7 +8,8 @@
     "build": "shadow-cljs release fn",
     "sync": "deno run --allow-read --allow-write --import-map=scripts/import-map.deno.json scripts/gen-wrappers.mjs && deno run --allow-read --allow-write --import-map=scripts/import-map.deno.json scripts/gen-instructions.mjs && rm -rf plugin/agent/resources && cp -R resources plugin/agent/resources",
     "dist": "npm run build && npm run sync",
-    "smoke": "deno run --allow-read --import-map=scripts/import-map.deno.json scripts/smoke-tools.mjs"
+    "smoke": "deno run --allow-read --import-map=scripts/import-map.deno.json scripts/smoke-tools.mjs",
+    "evals": "bash scripts/run-evals.sh"
   },
   "devDependencies": {
     "shadow-cljs": "^2.28.0"
