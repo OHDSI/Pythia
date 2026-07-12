@@ -11,10 +11,10 @@ which this plugin is authored against; see that directory's `README.md` for
 the day-to-day agents-plugin contract and `COMPAT.md` for exactly where
 trex's runtime matches real eve and where it diverges).
 
-The published package is `@trex/pythia`, declaring one agent named `pythia`
+The published package is `@ohdsi/pythia-agent`, declaring one agent named `pythia`
 in `plugin/package.json`'s `trex.agents`. trex derives the mount point from
 the plugin's npm scope and the agent name (`/<scope>/<name>/...`), so this
-agent is served at **`/plugins/trex/pythia/*`** — not `/plugins/pythia/pythia`
+agent is served at **`/plugins/ohdsi/pythia/*`** — not `/plugins/pythia/pythia`
 as an earlier revision of this file said.
 
 ## Layout
@@ -45,8 +45,8 @@ agent/
   package.json           build/sync/dist/smoke scripts
   out/                   build output (gitignored): tools.js
 
-  plugin/                the MOUNTABLE plugin directory (self-contained, published as @trex/pythia)
-    package.json         @trex/pythia, trex.agents -> [{name: "pythia", dir: "agent", env: {...}}]
+  plugin/                the MOUNTABLE plugin directory (self-contained, published as @ohdsi/pythia-agent)
+    package.json         @ohdsi/pythia-agent, trex.agents -> [{name: "pythia", dir: "agent", env: {...}}]
     agent/                the eve-layout agent directory (TREX_AGENT_DIR at runtime)
       instructions.md     GENERATED, committed (by gen-instructions.mjs)
       agent.edn           {:max-steps 20}, no :model (falls back to
@@ -132,7 +132,7 @@ starts one Deno worker per agent with `TREX_AGENT_DIR` set to
 
 In this repo's dev stack (`docker-compose.yml`), `agent/plugin` is bind-mounted
 read-only into the trex container's plugins-dev path and served at
-`/plugins/trex/pythia/*` on port 8001.
+`/plugins/ohdsi/pythia/*` on port 8001.
 
 ## Environment variables
 
@@ -146,7 +146,7 @@ read-only into the trex container's plugins-dev path and served at
 ## Calling it
 
 Once mounted, trex exposes the eve-compatible session API and a `/chat`
-convenience endpoint under `/plugins/trex/pythia/...` — see the trex agents
+convenience endpoint under `/plugins/ohdsi/pythia/...` — see the trex agents
 README's "HTTP surface" section for the full session/stream/chat protocol.
 
 This repo's Atlas3 frontend (`src/chat-session.ts`) talks to the `/chat`
@@ -167,7 +167,7 @@ mounted stack.
 
 ### Auth: go through the WebAPI proxy, not :8001 directly
 
-`/plugins/trex/pythia` on :8001 is gated by trex's `authContext` +
+`/plugins/ohdsi/pythia` on :8001 is gated by trex's `authContext` +
 `pluginAuthz` middleware, which requires a `apikey: <service_role>` header
 (see `core/server/middleware/auth-context.ts` and `plugin-authz.ts` in the
 trex repo). `eve eval` has **no `--header`/`-H` flag** — that flag exists
@@ -179,12 +179,12 @@ eval-side auth knob is the `EVE_EVAL_AUTH_TOKEN` env var, and it is sent
 trex's `authContext` explicitly refuses to accept `service_role`/`anon`
 keys over the Authorization channel (they must arrive via `apikey`) and
 falls through to "no valid auth" instead. So neither a CLI flag nor
-`EVE_EVAL_AUTH_TOKEN` can get a bare `--url http://localhost:8001/plugins/trex/pythia`
+`EVE_EVAL_AUTH_TOKEN` can get a bare `--url http://localhost:8001/plugins/ohdsi/pythia`
 run past pluginAuthz.
 
 Point `eve eval` at the **WebAPI proxy** instead — trex's bao plugin
 (`plugins/bao/java/src/trexsql/webapi.clj`'s `agent-proxy-handler`) forwards
-`/WebAPI/trex/pythia/*` to `:8001/plugins/trex/pythia/*` and injects the
+`/WebAPI/trex/pythia/*` to `:8001/plugins/ohdsi/pythia/*` and injects the
 `apikey: <service_role>` header itself, unconditionally, on every request
 it proxies (see trex repo, `fix(bao): route /WebAPI/trex/pythia to the
 agents plugin mount`). That means no `EVE_EVAL_AUTH_TOKEN` is even required
@@ -208,7 +208,7 @@ evals), curl it directly with the service_role key as a fallback — read
 `webapi.clj`):
 
 ```sh
-curl -sS http://localhost:8001/plugins/trex/pythia/eve/v1/health \
+curl -sS http://localhost:8001/plugins/ohdsi/pythia/eve/v1/health \
   -H "apikey: $BAO_AGENT_SERVICE_ROLE_KEY"
 ```
 
