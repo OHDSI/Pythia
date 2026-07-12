@@ -6,13 +6,20 @@ export default defineEval({
     "concept IDs quoted in the reply come from search_concepts results, not model recall",
   tags: ["grounding"],
   async test(t) {
+    // Scenario term calibrated on a live Eunomia run: Eunomia's subset
+    // vocabulary has NO hypertension concepts at all (search_concepts
+    // returned 0 rows, leaving the agent nothing to ground its answer in),
+    // but "Gastrointestinal hemorrhage" (a Standard Condition concept) IS
+    // present — so the grounding invariant is actually satisfiable. The
+    // assertion itself stays data-independent: it checks reply/tool-output
+    // consistency, never a specific ID.
     const turn = await t.send(
-      "Search the vocabulary for the standard OMOP concept for essential hypertension and tell me its concept ID.",
+      "Search the vocabulary for the standard OMOP concept for gastrointestinal hemorrhage and tell me its concept ID.",
     );
     t.succeeded();
 
-    // Topical assertion: the agent did search for hypertension.
-    t.calledTool("search_concepts", { input: { query: /hypertens/i } });
+    // Topical assertion: the agent did search for GI hemorrhage.
+    t.calledTool("search_concepts", { input: { query: /h(a?)emorrhage|gi bleed/i } });
 
     // Grounding check computed EAGERLY here in the test body — not inside a
     // deferred assertion. In eve@0.19.0 `t.calledTool` is a *deferred* scoped
