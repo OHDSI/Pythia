@@ -227,19 +227,13 @@ curl -sS http://localhost:8001/plugins/ohdsi/pythia/eve/v1/health \
   -H "apikey: $BAO_AGENT_SERVICE_ROLE_KEY"
 ```
 
-**Known bug in the currently pinned trex image:** the bao agent proxy 500s
-on **bodyless GETs** (`/eve/v1/health`, `/eve/v1/info`), so the canonical
-`https://localhost/WebAPI/trex/pythia` route fails eve's health probe before
-any eval runs. The fix is committed on the trex repo's
-`fix/agent-proxy-get-body` branch but not yet in a released image.
-Meanwhile `scripts/run-evals.sh` detects the unhealthy proxy route and falls
-back automatically to a local sidecar (`scripts/eval-auth-proxy.mjs`, on
-`127.0.0.1:8901`) that talks to the `:8001` mount directly and injects the
-`apikey` header eve cannot send — the "falling back to local auth-injecting
-sidecar" notice in eval output is expected, not a failure. For the same
-reason, CI waits on the **direct `:8001` mount** rather than the proxy
-route: a `401` there proves the plugin route is alive without needing the
-apikey.
+Historical note: pinned trexsql images before `sha-0320fd70...` had a bao
+agent-proxy bug that 500'd **bodyless GETs** (`/eve/v1/health`,
+`/eve/v1/info`) through the canonical route, blocking eve's health probe
+(fixed by OHDSI/trex#143). The interim sidecar workaround
+(`eval-auth-proxy.mjs`) was removed when the fixed image was pinned; if the
+canonical route's health probe ever 500s again while `:8001` answers `401`,
+suspect a proxy regression of the same shape.
 
 ### Models: two separate paths
 

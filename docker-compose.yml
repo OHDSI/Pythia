@@ -32,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:72165aee44a7a1d7203763dc3d1ad3019c02d020013afcb9adef581d238e3eb2}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:57ec9d6d8e7a087604e984bea604bc02115bfeeba6448eebe3d64a33b05566bf}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -73,7 +73,7 @@ services:
 
   # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:72165aee44a7a1d7203763dc3d1ad3019c02d020013afcb9adef581d238e3eb2}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:57ec9d6d8e7a087604e984bea604bc02115bfeeba6448eebe3d64a33b05566bf}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
