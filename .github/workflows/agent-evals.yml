@@ -18,17 +18,21 @@ jobs:
 
       - name: Check secret is configured
         id: gate
+        env:
+          BEDROCK_TOKEN: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
         run: |
-          if [ -z "${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}" ]; then
+          if [ -z "$BEDROCK_TOKEN" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice::AWS_BEARER_TOKEN_BEDROCK secret not set — skipping eval run"
           fi
 
       - name: Write .env for compose + eval runner
         if: steps.gate.outputs.skip != 'true'
+        env:
+          BEDROCK_TOKEN: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
         run: |
           {
-            echo "AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}"
+            echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN"
             echo "AWS_REGION=$AWS_REGION"
             echo "BAO_AGENT_MODEL=$BAO_AGENT_MODEL"
           } > .env
