@@ -26,3 +26,6 @@ docs/superpowers/
 figures/*.mp4
 figures/*.webm
 !figures/demo-highlight.gif
+
+# TrexSQL per-source cache (bind-mounted into trex; rebuilt on demand)
+/trexsql-cache/

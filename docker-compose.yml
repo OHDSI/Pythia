@@ -101,6 +101,13 @@ services:
       # Served at /plugins/ohdsi/pythia/* on :8001 (@ohdsi is a trusted
       # plugin scope since trex #141). See agent/README.md.
       - ./agent/plugin:/usr/src/plugins-dev/pythia:ro
+      # TrexSQL's per-source cache. It lives under /tmp inside the container,
+      # which is not persisted, so every `up -d` that recreates trex (an env
+      # change is enough) silently discarded it — and rebuilding the EUNOMIA
+      # cache is slow enough that the live preview looks broken until it
+      # finishes. A bind mount keeps it across recreates; uid 1000 in the
+      # container matches the host user, so ownership stays writable.
+      - ./trexsql-cache:/tmp/trexsql-cache
     environment:
       <<: *swarm-config
       SWARM_NODE: trex
