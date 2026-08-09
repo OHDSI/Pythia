@@ -16,17 +16,40 @@ onUnmounted(() => {
   if (tickHandle !== null) clearInterval(tickHandle)
 })
 
+// Show the toast for EVERY agent navigation. It used to be suppressed unless a
+// previous route had been captured, so the most common case — Pythia opening a
+// fresh cohort from the landing page — moved the user to a different screen
+// with no notification at all. Undo simply isn't offered when there's nowhere
+// to go back to.
 const visible = computed(() => {
   const ln = lastNavigation.value
   if (!ln) return false
-  if (!ln.previous) return false
   return now.value - ln.at < TIMEOUT_MS
 })
+
+const canUndo = computed(() => !!lastNavigation.value?.previous)
+
+// Route names are internal ("cohort-new"); say what actually happened.
+const ROUTE_LABELS: Record<string, string> = {
+  'cohort-new': 'a new cohort definition',
+  'cohort-edit': 'the cohort definition',
+  'cohorts': 'the cohort list',
+  'concept-sets': 'the concept sets',
+  'concept-set-edit': 'the concept set',
+  'pathways': 'the pathway analyses',
+  'pathway-edit': 'the pathway analysis',
+  'characterizations': 'the characterizations',
+  'characterization-edit': 'the characterization',
+  'incidence-rates': 'the incidence rate analyses',
+  'incidence-rate-edit': 'the incidence rate analysis',
+  'datasources': 'the data sources',
+}
 
 const label = computed(() => {
   const ln = lastNavigation.value
   if (!ln) return ''
-  return `Pythia opened ${ln.toName}`
+  const what = ROUTE_LABELS[ln.toName] ?? ln.toName
+  return ln.reason ? `Pythia opened ${what} — ${ln.reason}` : `Pythia opened ${what}`
 })
 
 function onUndo() {
@@ -47,6 +70,7 @@ function onDismiss() {
   >
     <span class="undo-toast__label">{{ label }}</span>
     <button
+      v-if="canUndo"
       type="button"
       class="undo-toast__action"
       @click="onUndo"

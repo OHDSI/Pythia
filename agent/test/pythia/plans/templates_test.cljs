@@ -23,7 +23,7 @@
 (deftest scenarios-cover-the-catalog
   (is (= #{"cohort-design" "standalone-concept-set" "characterization"
            "incidence-rate" "pathway" "cohort-diagnostics" "cohort-comparison"
-           "reuse-phenotype"}
+           "reuse-phenotype" "refine-cohort"}
          (set (keys t/templates)))))
 
 (deftest template-for-resolves-each-scenario

@@ -36,11 +36,11 @@
     :success "named concept-set specs with resolved Standard concepts exist"}
 
    "create-concept-set"
-   {:label "Create the concept set"
-    :description "Resolve the clinical terms to Standard concepts, then persist the concept set on the server."
-    :tools ["search_concepts" "create_standalone_concept_set"]
+   {:label "Reuse or create the concept set"
+    :description "Check search_existing_concept_sets FIRST — a set the user already curated is better than a near-duplicate, and stays in step with their edits. Reuse it with use_concept_set; only resolve terms and persist a new set when nothing fits."
+    :tools ["search_existing_concept_sets" "use_concept_set" "search_concepts" "create_standalone_concept_set"]
     :proposal-kind "createStandaloneConceptSet" :route "concepts"
-    :success "a server-persisted concept set exists"}
+    :success "the cohort uses an existing concept set, or a new one exists because none fitted"}
 
    "set-entry-event"
    {:label "Set the cohort entry event"

@@ -80,7 +80,9 @@
   (async done
     (let [body {:PrimaryCriteria {:CriteriaList [{:ConditionOccurrence {:CodesetId 0}}]
                                    :ObservationWindow {:PriorDays 0 :PostDays 0}}
-                :ConceptSets [{:name "T2DM"
+                ;; id 0 so the entry event's CodesetId actually resolves — a
+                ;; criterion pointing at an undefined concept set matches no one.
+                :ConceptSets [{:id 0 :name "T2DM"
                                :expression {:items [{:concept {:CONCEPT_NAME "Type 2 diabetes"
                                                                 :STANDARD_CONCEPT "S"}}]}}]
                 :InclusionRules [{:name "on metformin"}]
@@ -152,4 +154,76 @@
                      (is (true? (:pass (get by-id "has-target-ids"))))
                      (is (false? (:pass (get by-id "has-outcome-ids"))))
                      (is (false? (:pass (get by-id "time-at-risk-set")))))
+                   (restore) (done)))))))
+
+;; ---------- cohort semantics: the checks that catch inverted logic ----------
+;;
+;; These come from a real failure. The agent was asked for "adults with
+;; osteoarthritis starting ibuprofen, excluding anyone with a previous GI bleed
+;; or peptic ulcer" and saved a single rule named "Osteoarthritis qualification
+;; and prior GI safety exclusions" whose three criteria ALL required the event —
+;; so the cohort required a GI bleed AND a peptic ulcer. It generated fine, the
+;; rule name read reassuringly, and nothing anywhere said the logic was
+;; inverted. Presence checks cannot see this; only the cardinality can.
+
+(def ^:private mixed-rule-body
+  {:PrimaryCriteria {:CriteriaList [{:DrugExposure {:CodesetId 0}}]
+                     :ObservationWindow {:PriorDays 365 :PostDays 0}}
+   :ConceptSets [{:id 0 :name "Ibuprofen" :expression {:items [{:concept {:CONCEPT_ID 1 :STANDARD_CONCEPT "S"}}]}}
+                 {:id 1 :name "Osteoarthritis" :expression {:items [{:concept {:CONCEPT_ID 2 :STANDARD_CONCEPT "S"}}]}}
+                 {:id 2 :name "GI hemorrhage" :expression {:items [{:concept {:CONCEPT_ID 3 :STANDARD_CONCEPT "S"}}]}}]
+   :InclusionRules
+   [{:name "Osteoarthritis qualification and prior GI safety exclusions"
+     :expression {:CriteriaList [{:Criteria {:ConditionOccurrence {:CodesetId 1}}
+                                  :Occurrence {:Type 2 :Count 1}}
+                                 {:Criteria {:ConditionOccurrence {:CodesetId 2}}
+                                  :Occurrence {:Type 2 :Count 1}}]}}]
+   :EndStrategy {:DateOffset {:Offset 0}}})
+
+(deftest cohort-checks-flag-a-rule-that-mixes-required-and-excluded
+  (async done
+    (let [[_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body mixed-rule-body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 78 :intent "OA patients on ibuprofen without prior GI bleed"} {})
+          (.then (fn [out]
+                   (let [by-id (checks-by-id out)]
+                     ;; every criterion requires its event, so nothing is excluded
+                     (is (re-find #"requires 2 and excludes 0"
+                                  (:detail (get by-id "rule-directions-readable"))))
+                     ;; the rule name mentions exclusions but excludes nothing
+                     (is (false? (:pass (get by-id "exclusions-encoded-not-just-named"))))
+                     (is (re-find #"invert" (:detail (get by-id "exclusions-encoded-not-just-named")))))
+                   (restore) (done)))))))
+
+(deftest cohort-checks-pass-when-the-exclusion-carries-zero-cardinality
+  (async done
+    (let [body (assoc mixed-rule-body :InclusionRules
+                      [{:name "Osteoarthritis diagnosis before index"
+                        :expression {:CriteriaList [{:Criteria {:ConditionOccurrence {:CodesetId 1}}
+                                                     :Occurrence {:Type 2 :Count 1}}]}}
+                       {:name "Exclude prior GI bleed"
+                        :expression {:CriteriaList [{:Criteria {:ConditionOccurrence {:CodesetId 2}}
+                                                     :Occurrence {:Type 0 :Count 0}}]}}])
+          [_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 79 :intent "OA on ibuprofen, no prior GI bleed"} {})
+          (.then (fn [out]
+                   (let [by-id (checks-by-id out)]
+                     (is (true? (:pass (get by-id "exclusions-encoded-not-just-named"))))
+                     (is (true? (:pass (get by-id "one-direction-per-rule"))))
+                     (is (true? (:pass (get by-id "all-codesets-resolvable")))))
+                   (restore) (done)))))))
+
+(deftest cohort-checks-flag-a-criterion-pointing-at-an-empty-or-missing-codeset
+  (async done
+    (let [body (-> mixed-rule-body
+                   (assoc :ConceptSets [{:id 0 :name "Ibuprofen"
+                                         :expression {:items [{:concept {:CONCEPT_ID 1 :STANDARD_CONCEPT "S"}}]}}
+                                        {:id 1 :name "Osteoarthritis" :expression {:items []}}]))
+          [_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 80 :intent "x"} {})
+          (.then (fn [out]
+                   (let [d (:detail (get (checks-by-id out) "all-codesets-resolvable"))]
+                     (is (false? (:pass (get (checks-by-id out) "all-codesets-resolvable"))))
+                     ;; codeset 1 is defined but empty; codeset 2 is not defined at all
+                     (is (re-find #"has no concepts" d))
+                     (is (re-find #"not defined" d)))
                    (restore) (done)))))))

@@ -78,7 +78,7 @@ const designPreview = computed(() => {
       v-else
       class="status-line muted"
     >
-      Rejected
+      {{ proposal.status === 'dismissed' ? 'Dismissed — you replied instead' : 'Rejected' }}
     </div>
   </div>
 </template>

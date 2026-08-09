@@ -1,5 +1,5 @@
 (ns pythia.tools.client-manifest-test
-  "Guards the manifest-driven client tool set: the 19 artifact-editing tools
+  "Guards the manifest-driven client tool set: the 23 artifact-editing tools
    come from the ATLAS-authored capability manifest, the 3 conversation tools
    stay authored inline, and all are schema-only (no :run)."
   (:require [cljs.test :refer [deftest is testing]]
@@ -11,7 +11,9 @@
     "navigate_to" "add_inclusion_rule" "create_feature_analysis"
     "create_characterization" "create_pathway" "update_concept_set"
     "update_feature_analysis" "update_characterization" "update_pathway"
-    "update_incidence_rate" "create_incidence_rate" "save_cohort"})
+    "update_incidence_rate" "create_incidence_rate" "save_cohort"
+    "generate_analysis" "remove_inclusion_rule" "remove_entry_event"
+    "use_concept_set"})
 (def pythia-only #{"ask_user" "create_plan" "update_plan_step"})
 
 (deftest client-tools-name-set

@@ -23,6 +23,67 @@
 
 (defn- check [id pass detail] {:id id :pass (boolean pass) :detail detail})
 
+;; Circe carries cardinality per criterion: Occurrence {:Type 0 :Count 0} is
+;; "exactly zero" (an exclusion), {:Type 2 :Count 1} is "at least one" (a
+;; requirement). A rule that says "exclude prior GI bleed" while every criterion
+;; requires the event builds a cohort of exactly the people it claims to drop,
+;; and every screen still shows the reassuring rule name — so the only way to
+;; catch it is to read the encoding, not the label.
+(def ^:private negation-re
+  #"(?i)\b(exclud\w*|exclusion\w*|without|no prior|no history|no previous|no known|never|absence of|rule out)\b")
+
+(defn- requires-event? [criterion]
+  (let [occ (:Occurrence criterion)
+        t (:Type occ)
+        c (:Count occ)]
+    ;; Absent Occurrence means circe's default: at least one.
+    (or (nil? occ) (and (= 2 t) (pos? (or c 0))) (and (= 1 t) (pos? (or c 0))))))
+
+(defn- excludes-event? [criterion]
+  (let [occ (:Occurrence criterion)]
+    (and occ (= 0 (:Type occ)) (= 0 (or (:Count occ) 0)))))
+
+(defn- rule-directions
+  "Per-rule summary of what each rule actually requires vs excludes."
+  [inclusion-rules]
+  (for [r inclusion-rules
+        :let [crits (get-in r [:expression :CriteriaList])
+              required (count (filter requires-event? crits))
+              excluded (count (filter excludes-event? crits))]]
+    {:name (:name r)
+     :required required
+     :excluded excluded
+     :named-as-exclusion (boolean (re-find negation-re (str (:name r))))}))
+
+(defn- inverted-exclusions
+  "Rules whose name states an absence but whose criteria all require the event."
+  [dirs]
+  (filter #(and (:named-as-exclusion %) (zero? (:excluded %)) (pos? (:required %))) dirs))
+
+(defn- codeset-problems
+  "CodesetIds referenced by criteria that resolve to nothing: either the concept
+   set is not defined at all, or it is defined but empty. Both make the criterion
+   match no one while the cohort still builds and generates."
+  [body]
+  (let [sets (into {} (for [cs (:ConceptSets body)]
+                        [(:id cs) (count (get-in cs [:expression :items]))]))
+        referenced (atom #{})]
+    (letfn [(walk [x]
+              (cond
+                (map? x) (do (when-let [cid (:CodesetId x)] (swap! referenced conj cid))
+                             (when-let [cid (:DrugCodesetId x)] (swap! referenced conj cid))
+                             (doseq [v (vals x)] (walk v)))
+                (sequential? x) (doseq [v x] (walk v))
+                :else nil))]
+      (walk body))
+    (for [cid @referenced
+          :let [n (get sets cid)]
+          :when (or (nil? n) (zero? n))]
+      (if (nil? n)
+        (str "CodesetId " cid " is referenced but not defined")
+        (str "CodesetId " cid " (\"" (some #(when (= cid (:id %)) (:name %)) (:ConceptSets body))
+             "\") is referenced but has no concepts")))))
+
 (defn- cohort-checks [body]
   (let [criteria (get-in body [:PrimaryCriteria :CriteriaList])
         concept-sets (:ConceptSets body)
@@ -35,15 +96,48 @@
                            :when (and c (contains? c :STANDARD_CONCEPT)
                                       (not= "S" (:STANDARD_CONCEPT c)))]
                        (str (:CONCEPT_NAME c) " (concept set \"" (:name cs) "\")"))]
-    [(check "entry-event-present" (seq criteria) "PrimaryCriteria.CriteriaList (entry event)")
-     (check "observation-window-set" (some? obs-window) "PrimaryCriteria.ObservationWindow")
-     (check "inclusion-rules-present" (seq inclusion-rules)
-            (str (count inclusion-rules) " inclusion rule(s) — informational, not all cohorts need them"))
-     (check "exit-strategy-set" (some? end-strategy) "EndStrategy (exit criteria)")
-     (check "all-concept-items-standard" (empty? non-standard)
-            (if (seq non-standard)
-              (str "non-Standard concepts used: " (str/join ", " non-standard))
-              "all concept-set items use Standard concepts"))]))
+    (let [dirs (rule-directions inclusion-rules)
+          inverted (inverted-exclusions dirs)
+          codeset-issues (codeset-problems body)
+          mixed (filter #(and (pos? (:required %)) (pos? (:excluded %))) dirs)]
+      [(check "entry-event-present" (seq criteria) "PrimaryCriteria.CriteriaList (entry event)")
+       (check "observation-window-set" (some? obs-window) "PrimaryCriteria.ObservationWindow")
+       (check "inclusion-rules-present" (seq inclusion-rules)
+              (str (count inclusion-rules) " inclusion rule(s) — informational, not all cohorts need them"))
+       (check "exit-strategy-set" (some? end-strategy) "EndStrategy (exit criteria)")
+       (check "all-concept-items-standard" (empty? non-standard)
+              (if (seq non-standard)
+                (str "non-Standard concepts used: " (str/join ", " non-standard))
+                "all concept-set items use Standard concepts"))
+       ;; The encoding, not the label. Read this list against what the user asked
+       ;; for: a criterion counted under "requires" keeps only patients who HAVE
+       ;; that event.
+       (check "rule-directions-readable" true
+              (if (seq dirs)
+                (str/join "; "
+                          (for [d dirs]
+                            (str "\"" (:name d) "\" requires " (:required d)
+                                 " and excludes " (:excluded d) " criterion/criteria")))
+                "no inclusion rules"))
+       (check "exclusions-encoded-not-just-named" (empty? inverted)
+              (if (seq inverted)
+                (str "these rules are NAMED as exclusions but REQUIRE the event, which inverts them: "
+                     (str/join ", " (map #(str "\"" (:name %) "\"") inverted))
+                     " — re-propose with zero cardinality (add_criterion group=exclusion, "
+                     "or add_inclusion_rule logicType=AT_MOST count=0)")
+                "no rule is named as an exclusion while requiring its event"))
+       ;; A rule cannot be half required and half excluded and still read
+       ;; correctly to anyone scanning the definition; split it.
+       (check "one-direction-per-rule" (empty? mixed)
+              (if (seq mixed)
+                (str "these rules mix required and excluded criteria: "
+                     (str/join ", " (map #(str "\"" (:name %) "\"") mixed))
+                     " — split them into one rule per direction")
+                "each rule is entirely required or entirely excluded"))
+       (check "all-codesets-resolvable" (empty? codeset-issues)
+              (if (seq codeset-issues)
+                (str/join "; " codeset-issues)
+                "every referenced concept set exists and has concepts"))])))
 
 (defn- concept-set-checks [body]
   (let [items (:items body)]

@@ -635,3 +635,135 @@ describe('recordAndMaybeAutoAccept', () => {
     expect(proposals.value['tc-raa-3'].status).toBe('pending')
   })
 })
+
+// Regression: typing a chat message while a proposal card is still on screen
+// used to leave that tool call unresolved. The next request then carried an
+// assistant tool call with no matching tool result and the AI SDK aborted with
+// AI_MissingToolResultsError — surfacing as "An error occurred." and a dead
+// session. send() now dismisses anything still pending first.
+describe('dismissPendingProposals (typed reply while a proposal is pending)', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('resolves every pending proposal so no tool call is left without a result', async () => {
+    const { recordProposal, dismissPendingProposals } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal({
+      toolCallId: 'tc-d1',
+      toolName: 'set_entry_event',
+      input: { name: 'Diclofenac' },
+    }, { addToolResult })
+    recordProposal({
+      toolCallId: 'tc-d2',
+      toolName: 'add_inclusion_rule',
+      input: { name: 'GI bleed' },
+    }, { addToolResult })
+    expect(addToolResult).not.toHaveBeenCalled()
+
+    const n = await dismissPendingProposals({ addToolResult })
+
+    expect(n).toBe(2)
+    expect(addToolResult).toHaveBeenCalledTimes(2)
+    for (const id of ['tc-d1', 'tc-d2']) {
+      expect(proposals.value[id].status).toBe('dismissed')
+      expect(addToolResult).toHaveBeenCalledWith(expect.objectContaining({
+        toolCallId: id,
+        output: expect.objectContaining({ decision: 'dismissed' }),
+      }))
+    }
+  })
+
+  it('leaves already-decided proposals alone', async () => {
+    const { recordProposal, resolveProposal, dismissPendingProposals } =
+      await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal({
+      toolCallId: 'tc-d3',
+      toolName: 'add_criteria',
+      input: { name: 'Test', group: 'inclusion', logic: 'AND', items: [] },
+    }, { addToolResult })
+    resolveProposal('tc-d3', 'rejected', { addToolResult })
+    addToolResult.mockClear()
+
+    expect(await dismissPendingProposals({ addToolResult })).toBe(0)
+    expect(addToolResult).not.toHaveBeenCalled()
+    expect(proposals.value['tc-d3'].status).toBe('rejected')
+  })
+})
+
+// Regression: cards used to render in one block after the whole transcript, so
+// a proposal belonging to an earlier assistant message appeared BELOW every
+// later reply — the conversation read out of order. Cards carry the parent
+// message id in `groupId`; ChatPanel now buckets by it and renders each card
+// under its own message, with a fallback for ones it can't anchor.
+describe('proposal/ask cards anchor to their parent message', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('records the parent message id so cards can be placed inline', async () => {
+    const { recordProposal } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal(
+      { toolCallId: 'tc-a1', toolName: 'set_entry_event', input: { name: 'Amoxicillin' } },
+      { addToolResult },
+      { groupId: 'msg-1', groupIndex: 0 }
+    )
+    recordProposal(
+      { toolCallId: 'tc-a2', toolName: 'add_inclusion_rule', input: { name: 'GI bleed' } },
+      { addToolResult },
+      { groupId: 'msg-2', groupIndex: 0 }
+    )
+
+    expect(proposals.value['tc-a1'].groupId).toBe('msg-1')
+    expect(proposals.value['tc-a2'].groupId).toBe('msg-2')
+
+    // Bucketing by groupId is what lets the template render each card under
+    // its own message rather than dumping both at the bottom.
+    const byMessage = new Map<string, string[]>()
+    for (const p of Object.values(proposals.value)) {
+      const list = byMessage.get(p.groupId!) ?? []
+      list.push(p.id)
+      byMessage.set(p.groupId!, list)
+    }
+    expect([...byMessage.keys()].sort()).toEqual(['msg-1', 'msg-2'])
+    expect(byMessage.get('msg-1')).toEqual(['tc-a1'])
+    expect(byMessage.get('msg-2')).toEqual(['tc-a2'])
+  })
+})
+
+// Resolved cards are the audit trail: they record what the agent proposed and
+// what the researcher decided. They used to delete themselves a couple of
+// seconds after the decision, so the transcript ended up showing an analysis
+// with no evidence of anyone approving it. They must survive in state (and
+// therefore in the persisted session).
+describe('resolved proposals stay in the transcript', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('keeps an accepted proposal, marked accepted', async () => {
+    const { recordProposal, resolveProposal } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal(
+      { toolCallId: 'tc-keep1', toolName: 'set_entry_event', input: { name: 'Sinusitis' } },
+      { addToolResult }
+    )
+    resolveProposal('tc-keep1', 'accepted', { addToolResult })
+    expect(proposals.value['tc-keep1']).toBeDefined()
+    expect(proposals.value['tc-keep1'].status).toBe('accepted')
+  })
+
+  it('keeps a rejected proposal, marked rejected', async () => {
+    const { recordProposal, resolveProposal } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal(
+      { toolCallId: 'tc-keep2', toolName: 'save_cohort', input: { name: 'Sinusitis cohort' } },
+      { addToolResult }
+    )
+    resolveProposal('tc-keep2', 'rejected', { addToolResult })
+    expect(proposals.value['tc-keep2']).toBeDefined()
+    expect(proposals.value['tc-keep2'].status).toBe('rejected')
+  })
+})

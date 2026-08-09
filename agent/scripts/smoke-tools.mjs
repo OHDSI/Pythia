@@ -9,7 +9,7 @@
 // Run under deno with the eve/tools stub import map (scripts/import-map.deno.json)
 // — same reason as gen-wrappers.mjs/gen-instructions.mjs: each wrapper's
 // _build/tools.js re-export chain still carries the bare `eve/tools` import.
-const EXPECTED_TOOL_COUNT = 44;
+const EXPECTED_TOOL_COUNT = 49;
 
 // name -> expected clientOnly-ness, per pythia.tools.client/client-tools
 // (clientOnly) vs pythia.tools/server (execute) in agent/src/pythia/tools.cljs.

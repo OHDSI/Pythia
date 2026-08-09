@@ -19,7 +19,7 @@
 // in tools/), so nesting the bundle at tools/_build/tools.js is safe.
 import { tools } from "../out/tools.js";
 
-const EXPECTED_TOOL_COUNT = 44;
+const EXPECTED_TOOL_COUNT = 49;
 
 const names = Object.keys(tools);
 if (names.length !== EXPECTED_TOOL_COUNT) {

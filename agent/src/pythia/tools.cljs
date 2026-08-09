@@ -11,6 +11,7 @@
             [pythia.tools.get-artifact :as get-artifact]
             [pythia.tools.review-artifact :as review-artifact]
             [pythia.tools.get-cohort-generation-summary :as get-cohort-generation-summary]
+            [pythia.tools.get-analysis-results :as get-analysis-results]
             [pythia.tools.summarise-attrition :as summarise-attrition]
             [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
             [pythia.tools.draft-concept-set-spec :as draft-concept-set-spec]
@@ -37,6 +38,7 @@
    get-artifact/tool
    review-artifact/tool
    get-cohort-generation-summary/tool
+   get-analysis-results/tool
    summarise-attrition/tool
    get-cohort-overlap/tool
    draft-concept-set-spec/tool

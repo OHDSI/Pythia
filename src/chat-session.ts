@@ -169,6 +169,8 @@ export const CLIENT_SIDE_TOOLS = new Set([
   'update_characterization',
   'update_pathway',
   'update_incidence_rate',
+  // Runs a saved analysis (the Generate button). Proposal-gated like the rest.
+  'generate_analysis',
 ])
 
 // Discriminates the `AgentProposal.kind` a client-side tool call would
@@ -220,6 +222,8 @@ export function proposalKind(name: string, args: Record<string, unknown>): strin
       return 'updatePathway'
     case 'update_incidence_rate':
       return 'updateIncidenceRate'
+    case 'generate_analysis':
+      return 'generateAnalysis'
     default:
       return null
   }
@@ -448,6 +452,37 @@ export interface ProposalResolver {
   addToolResult: (r: { tool: string; toolCallId: string; output: unknown }) => void
 }
 
+// Set while a typed message is dismissing pending proposals, so resolving
+// those tool calls doesn't auto-fire a second request alongside the user's.
+// Cleared by the sender once its own request is under way.
+let autoSendSuppressed = false
+export function clearAutoSendSuppression(): void { autoSendSuppressed = false }
+
+// A user decision (accept/reject on a proposal card) resolves the tool call the
+// model was blocked on, so the turn should simply carry on. Without this the
+// conversation stalls until someone types "continue", because the auto-send
+// gate below only fires when the last turn finished with reason 'tool-calls' —
+// and a turn that ended with a proposal plus a summary paragraph often doesn't.
+// Set by resolveProposal/acceptProposal, consumed once by the gate.
+let resumeAfterDecision = false
+export function markUserDecided(): void { resumeAfterDecision = true }
+
+// True from the moment the SDK decides to auto-continue until that request
+// actually starts. Any addToolResult can arm it — navigate_to, a proposal
+// decision, the proposal timeout, an ask_user record — and until the request
+// flips status to submitted/streaming, `isStreaming` still reads false. A
+// message sent in that window becomes a SECOND concurrent makeRequest, and the
+// SDK then reads state off an undefined active response ("Cannot read
+// properties of undefined (reading 'state')"), which kills the session.
+let autoSendArmed = false
+let autoSendArmedAt = 0
+export function isAutoSendArmed(): boolean {
+  // Never block forever: if the request never materialised, disarm.
+  if (autoSendArmed && Date.now() - autoSendArmedAt > 8000) autoSendArmed = false
+  return autoSendArmed
+}
+export function disarmAutoSend(): void { autoSendArmed = false }
+
 const PROPOSAL_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 const proposalTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -519,6 +554,10 @@ export function resolveProposal(
   if (!p) return
   const timer = proposalTimers.get(toolCallId)
   if (timer) { clearTimeout(timer); proposalTimers.delete(toolCallId) }
+  // Own the status transition here rather than trusting every caller to set it
+  // first: a resolved tool call left marked 'pending' would be resolved a
+  // second time by dismissPendingProposals on the next typed message.
+  p.status = decision
   const savedBits =
     decision === 'accepted' && result && result.id != null
       ? {
@@ -535,11 +574,51 @@ export function resolveProposal(
               ? 'The user accepted your proposal. Continue your turn — propose the next step or summarise.'
               : 'The user rejected your proposal. Ask one clarifying question or propose an alternative; do not re-propose the same thing.',
         }
+  markUserDecided()
   deps.addToolResult({
     tool: p.toolName,
     toolCallId,
     output: { decision, ...savedBits },
   })
+}
+
+// Every proposal card is an UNRESOLVED tool call: the model is blocked on a
+// tool result that only arrives when the user clicks Accept/Reject (or when the
+// 10-minute timeout above fires). If the user types a chat message instead, the
+// next request would carry an assistant tool call with no matching tool result,
+// and the AI SDK aborts the whole exchange with AI_MissingToolResultsError —
+// which surfaces as "An error occurred." and leaves the session unusable.
+//
+// So: before sending a typed message, resolve anything still pending as
+// 'dismissed'. Mirrors what send() already does for pending ask_user prompts.
+// Returns how many were dismissed (for tests/telemetry).
+export async function dismissPendingProposals(deps: ProposalResolver): Promise<number> {
+  let dismissed = 0
+  const writes: unknown[] = []
+  autoSendSuppressed = true
+  for (const p of Object.values(proposals.value)) {
+    if (p.status !== 'pending') continue
+    const timer = proposalTimers.get(p.id)
+    if (timer) { clearTimeout(timer); proposalTimers.delete(p.id) }
+    p.status = 'dismissed'
+    writes.push(deps.addToolResult({
+      tool: p.toolName,
+      toolCallId: p.id,
+      output: {
+        decision: 'dismissed',
+        instruction:
+          'The user replied in chat instead of deciding on this proposal. ' +
+          'Treat it as NOT applied and follow their message instead; re-propose ' +
+          'only if their message still calls for it.',
+      },
+    }))
+    dismissed++
+  }
+  // addToolResult is async (AI SDK 6 queues it on an internal job executor);
+  // let the writes land before the caller sends its message.
+  await Promise.all(writes)
+  if (dismissed === 0) autoSendSuppressed = false
+  return dismissed
 }
 
 // Shared accept pipeline: delegate the recorded tool call to ATLAS's
@@ -774,6 +853,19 @@ export function getChatInstance(): Chat<UIMessage> {
   // `shouldSendAutomatically`) and gate the predicate on it.
   let lastFinishReason: string | undefined
   const sendAutomaticallyWithCap: NonNullable<ConstructorParameters<typeof Chat<UIMessage>>[0]['sendAutomaticallyWhen']> = ({ messages }) => {
+    // A dismissal resolves the last outstanding tool call, which would
+    // otherwise auto-continue the turn — racing the user's own message that
+    // triggered the dismissal in the first place (two concurrent makeRequest
+    // calls). The typed message is the intended continuation, so skip this one.
+    if (autoSendSuppressed) return false
+    // The user just accepted/rejected a card: resume the turn they unblocked.
+    if (resumeAfterDecision) {
+      if (!lastAssistantMessageIsCompleteWithToolCalls({ messages })) return false
+      resumeAfterDecision = false
+      autoSendArmed = true
+      autoSendArmedAt = Date.now()
+      return true
+    }
     if (lastFinishReason !== 'tool-calls') return false
     if (!lastAssistantMessageIsCompleteWithToolCalls({ messages })) return false
     const last = messages[messages.length - 1]
@@ -787,7 +879,11 @@ export function getChatInstance(): Chat<UIMessage> {
         toolCallCount += 1
       }
     }
-    if (toolCallCount < MAX_AUTO_STEPS) return true
+    if (toolCallCount < MAX_AUTO_STEPS) {
+      autoSendArmed = true
+      autoSendArmedAt = Date.now()
+      return true
+    }
     // Model wanted to keep calling tools but we hit the cap — surface the
     // "Continue?" affordance so the user can choose to extend the budget.
     maxStepsReached.value = true
@@ -800,6 +896,7 @@ export function getChatInstance(): Chat<UIMessage> {
     sendAutomaticallyWhen: sendAutomaticallyWithCap,
     onFinish: ({ finishReason }) => {
       lastFinishReason = finishReason
+      autoSendArmed = false
     },
     onToolCall: ({ toolCall }: { toolCall: { toolCallId: string; toolName: string; input: unknown } }) => {
       if (toolCall.toolName === 'navigate_to') {

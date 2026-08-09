@@ -151,7 +151,10 @@ export interface ProposalState {
   id: string
   toolName: string
   args: ProposalArgs
-  status: 'pending' | 'accepted' | 'rejected'
+  // 'dismissed' = the user typed a chat message instead of deciding. The tool
+  // call still has to be resolved (see dismissPendingProposals) or the next
+  // request carries a tool call with no result and the SDK aborts the session.
+  status: 'pending' | 'accepted' | 'rejected' | 'dismissed'
   // Parent assistant UIMessage.id, captured when the tool call lands. Used
   // by ChatPanel to render groups when the model issues 2+ tool calls in
   // one turn. Older persisted proposals predate this field — undefined

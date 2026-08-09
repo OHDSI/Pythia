@@ -59,6 +59,29 @@
             {:skill "run-characterization" :required? true}
             {:skill "review-characterization" :required? true}]}
 
+   ;; Editing a cohort that already exists is its own shape of work: nothing is
+   ;; being created, the definition on screen is the user's, and every change
+   ;; has to be saved again to persist.
+   "refine-cohort"
+   {:title "Refine an existing cohort"
+    :document (str "## Goal\n"
+                   "Change a cohort that already exists — add, drop or adjust criteria — without rebuilding it.\n\n"
+                   "## Approach\n"
+                   "Open the saved cohort, read its current definition before touching it, then make the smallest "
+                   "change that answers the request: add_criterion / add_inclusion_rule to add, "
+                   "remove_inclusion_rule / remove_entry_event to drop, and set_observation_window / "
+                   "add_exit_criterion / set_censor_event to overwrite a setting. Save again afterwards.\n\n"
+                   "## Prerequisites & constraints\n"
+                   "The cohort must already be saved. Changes live only in the editor until save_cohort is accepted, "
+                   "so a refinement that is not saved has not happened. Do not rebuild the definition from scratch "
+                   "to make one change — that loses whatever the user edited by hand.\n\n"
+                   "## Success criteria\n"
+                   "The saved cohort reflects the requested change and nothing else, confirmed with review_artifact.")
+    :steps [{:skill "find-existing" :id "find-cohort" :label "Find the cohort to change" :required? true}
+            {:skill "add-inclusion-exclusion" :id "apply-change" :label "Apply the requested change" :required? false}
+            {:skill "build-cohort" :id "save-cohort" :label "Save the changed cohort" :required? true}
+            {:skill "review-cohort" :required? true}]}
+
    "incidence-rate"
    {:title "Run an incidence-rate analysis"
     :document (str "## Goal\n"

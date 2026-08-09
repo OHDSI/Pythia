@@ -70,7 +70,7 @@ function summary(refs: Array<{ name?: string }>): string {
       v-else
       class="status-line muted"
     >
-      Rejected
+      {{ proposal.status === 'dismissed' ? 'Dismissed — you replied instead' : 'Rejected' }}
     </div>
   </div>
 </template>
