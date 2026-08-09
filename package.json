@@ -1,6 +1,7 @@
 {
   "name": "@ohdsi/pythia-plugin",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "Pythia — AI-assisted cohort design advisor for ATLAS v3.0 (talks to bao /chat backend)",
   "type": "module",
   "files": [
