@@ -30,7 +30,7 @@ Adults aged 40 and over with osteoarthritis starting ibuprofen — new users onl
 bleed or peptic ulcer. Pythia proposes each criterion for approval, has one
 proposal rejected and adapts, saves the cohort, generates it (341 people from a
 base of 1,440), and then reads its own attrition back: osteoarthritis removes
-almost nobody, the GI exclusion 15.6%, the age restriction 53.3%. **3:36**
+almost nobody, the GI exclusion 15.6%, the age restriction 53.3%. **2:30**
 
 ### Building and running an analysis
 
@@ -41,12 +41,11 @@ almost nobody, the GI exclusion 15.6%, the age restriction 53.3%. **3:36**
 A treatment pathway analysis end to end: proposing criteria, saving three
 cohorts, assembling the pathway analysis, running it, and reading the result —
 2,040 of 2,689 sinusitis patients (75.9%) had a recorded antibiotic pathway,
-amoxicillin-only dominating at 70%. **4:08**
+amoxicillin-only dominating at 70%. **3:10**
 
 ## Running it
 
-You need Docker and a Bedrock bearer token. The submodule is **not** required —
-ATLAS is pulled as a published image.
+You need Docker and a Bedrock bearer token.
 
 ```bash
 git clone https://github.com/OHDSI/Pythia.git
@@ -77,11 +76,12 @@ point somewhere else.
 
 ### Pinning or overriding images
 
-`ATLAS_IMAGE` and `TREX_IMAGE` override the pinned defaults, which are a
-published ATLAS build and a trexsql digest.
+The stack runs pinned builds of ATLAS and trexsql, so it comes up the same way
+on every machine. `ATLAS_IMAGE` and `TREX_IMAGE` point it at a different build.
 
-To change ATLAS itself rather than consume it, check out the submodule and build
-locally — that shadows the pinned image:
+Changing ATLAS itself is the one thing that needs its source. `third_party/Atlas3`
+is a submodule for exactly that; check it out and build, which replaces the
+pinned image locally:
 
 ```bash
 git submodule update --init third_party/Atlas3
