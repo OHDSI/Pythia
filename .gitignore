@@ -32,3 +32,8 @@ figures/*.gif
 
 # TrexSQL per-source cache (bind-mounted into trex; rebuilt on demand)
 /trexsql-cache/
+
+# Local drafts for talks and papers. They live next to the code while being
+# written but are not part of the product.
+*.docx
+/OHDSI-abstract-*.md
