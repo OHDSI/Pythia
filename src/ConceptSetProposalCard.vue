@@ -71,7 +71,7 @@ const extra = computed(() => Math.max(0, items.value.length - head.value.length)
       v-else
       class="status-line muted"
     >
-      Rejected
+      {{ proposal.status === 'dismissed' ? 'Dismissed — you replied instead' : 'Rejected' }}
     </div>
   </div>
 </template>

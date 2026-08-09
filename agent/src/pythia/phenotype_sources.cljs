@@ -108,10 +108,10 @@
    :circe-summary (circe-summary c)
    :score (- 100 (status-rank (:status c)))})
 
-(defn rank-ohdsi-library
-  "Filter + rank the bundled index for `query`, top `n`. Mirrors the JVM
-   search-phenotype-library: match-all-terms? over name/name-long/description/
-   hashtag, then sort by (status-rank, :id), take n. Returns unified items."
+(defn filter-index
+  "Raw index entries matching `query`, best status first, top `n`. Shared with
+   rank-ohdsi-library so aggregate views (phenotype_patterns) and per-hit views
+   (search_phenotypes) select the same definitions."
   [index query n]
   (->> index
        (filter (fn [c]
@@ -121,7 +121,14 @@
                      (match-all-terms? query (:hashtag c)))))
        (sort-by (juxt #(status-rank (:status %)) :id))
        (take n)
-       (mapv ->ohdsi-item)))
+       vec))
+
+(defn rank-ohdsi-library
+  "Filter + rank the bundled index for `query`, top `n`. Mirrors the JVM
+   search-phenotype-library: match-all-terms? over name/name-long/description/
+   hashtag, then sort by (status-rank, :id), take n. Returns unified items."
+  [index query n]
+  (mapv ->ohdsi-item (filter-index index query n)))
 
 (defn search-ohdsi-library
   "Load the bundled index (cached) and rank for `query`. Returns a Promise of

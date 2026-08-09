@@ -1,5 +1,5 @@
 (ns pythia.tools.client
-  "Client-side proposal tools. The 19 artifact-editing capabilities come from
+  "Client-side proposal tools. The 28 artifact-editing capabilities come from
    the ATLAS-authored manifest (pythia.manifest) — ATLAS owns those schemas.
    The 3 conversation tools (ask_user, create_plan, update_plan_step) have no
    ATLAS executor, so they stay authored here. All are SCHEMA-ONLY (no :run):

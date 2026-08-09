@@ -9,7 +9,7 @@
 name: atlas3-trex
 
 # Single trex node: data_node (Local DuckDB pool) + trexas (UI/API) + pgwire.
-# pgwire gets an explicit password so the webapi-start init container can connect.
+# pgwire gets an explicit password for psql clients against trex's :5432.
 x-swarm-config: &swarm-config
   SWARM_CONFIG: >-
     {"cluster_id":"local","nodes":{
@@ -32,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:72165aee44a7a1d7203763dc3d1ad3019c02d020013afcb9adef581d238e3eb2}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:ff693804900450456e2c871d5c2a09b31fc57b754677471e493ff5a099009df9}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -71,9 +71,10 @@ services:
       timeout: 5s
       retries: 10
 
-  # Single trex node. Hosts the embedded WebAPI (booted by webapi-start) on :8080.
+  # Single trex node. Hosts the embedded WebAPI on :8080, started by trex itself
+  # at boot (see D2E_COMPAT below).
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:72165aee44a7a1d7203763dc3d1ad3019c02d020013afcb9adef581d238e3eb2}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:ff693804900450456e2c871d5c2a09b31fc57b754677471e493ff5a099009df9}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -100,9 +101,25 @@ services:
       # Served at /plugins/ohdsi/pythia/* on :8001 (@ohdsi is a trusted
       # plugin scope since trex #141). See agent/README.md.
       - ./agent/plugin:/usr/src/plugins-dev/pythia:ro
+      # TrexSQL's per-source cache. It lives under /tmp inside the container,
+      # which is not persisted, so every `up -d` that recreates trex (an env
+      # change is enough) silently discarded it — and rebuilding the EUNOMIA
+      # cache is slow enough that the live preview looks broken until it
+      # finishes. A bind mount keeps it across recreates; uid 1000 in the
+      # container matches the host user, so ownership stays writable.
+      - ./trexsql-cache:/tmp/trexsql-cache
     environment:
       <<: *swarm-config
       SWARM_NODE: trex
+      # Starts the embedded WebAPI (:8080) during trex's own boot, via
+      # d2e-compat block 1 (itself gated by WEBAPI_NATIVE_ENABLED, default on).
+      # That start call is only reachable behind this flag; everything else the
+      # flag turns on is inert here — the URL middleware only rewrites
+      # /d2e-prefixed requests, the legacy trex.db registry migration returns
+      # early because no `trex` schema exists, and the source/cache attach
+      # blocks find no rows. Without it nothing boots WebAPI, and `restart trex`
+      # leaves it down.
+      D2E_COMPAT: "true"
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-mypass}@postgres:5432/testdb
       SCHEMA_DIR: /usr/src/core/schema
       PLUGINS_PATH: /usr/src/plugins
@@ -155,8 +172,18 @@ services:
       # --- Pythia / trex agents runtime ---
       AWS_REGION: us-east-1
       # BAO_AGENT_MODEL kept as the operator-facing var name; TREX_AGENTS_DEFAULT_MODEL
-      # is what the trex agents runtime actually reads.
-      TREX_AGENTS_DEFAULT_MODEL: bedrock/${BAO_AGENT_MODEL:-minimax.minimax-m2.5}
+      # is what the trex agents runtime actually reads. BAO_AGENT_MODEL_SPEC lets an
+      # operator supply a fully-qualified `<provider>/<modelId>` spec when the model
+      # isn't a plain bedrock-runtime one (see the Luna note below).
+      TREX_AGENTS_DEFAULT_MODEL: ${BAO_AGENT_MODEL_SPEC:-bedrock/${BAO_AGENT_MODEL:-minimax.minimax-m2.5}}
+      # OpenAI GPT-5.6 (Sol/Terra/Luna) are NOT on bedrock-runtime — they are served
+      # only from the separate `bedrock-mantle` endpoint via an OpenAI-compatible
+      # Responses API, so `bedrock/...` can't reach them. Point trex's openai-compatible
+      # provider at mantle instead and select the model with
+      #   BAO_AGENT_MODEL_SPEC=openai/openai.gpt-5.6-luna
+      # The Bedrock long-term API key doubles as the OpenAI-style bearer token.
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://bedrock-mantle.${AWS_REGION:-us-east-1}.api.aws/openai/v1}
+      OPENAI_API_KEY: ${AWS_BEARER_TOKEN_BEDROCK:-}
       # AWS_BEARER_TOKEN_BEDROCK comes from ./.env via env_file above.
     healthcheck:
       test:
@@ -166,42 +193,6 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
-
-  # One-shot: boots the embedded WebAPI by loading the extension and calling
-  # webapi_start() over trex's pgwire port. Completes once /WebAPI/info is 200.
-  webapi-start:
-    image: postgres:16-alpine
-    depends_on:
-      trex:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD:-mypass}
-    entrypoint:
-      - sh
-      - -c
-      - |
-        # Probe-first idempotency: if WebAPI is already serving, do NOT call
-        # webapi_start() again — re-invoking it on a live instance destabilizes
-        # the embedded server. This lets the one-shot re-run safely on a hot
-        # stack (e.g. when `up` restarts it as a dependency of the frontend).
-        if wget -q -O /dev/null "http://trex:8080/WebAPI/info"; then
-          echo "[webapi-start] WebAPI already up; nothing to do"; exit 0
-        fi
-        # Load by full path: the bundled extension lives at /usr/lib/trexsql/
-        # extensions/webapi.trex. A bare `LOAD webapi` resolves to ~/.duckdb/
-        # extensions/<ver>/<arch>/webapi.duckdb_extension, which isn't there.
-        echo "[webapi-start] LOAD webapi.trex; SELECT webapi_start();"
-        psql -h trex -p 5432 -U trex -d main -c "LOAD '/usr/lib/trexsql/extensions/webapi.trex';" -c "SELECT webapi_start();"
-        echo "[webapi-start] waiting for http://trex:8080/WebAPI/info"
-        for i in $$(seq 1 60); do
-          code=$$(wget -q -O /dev/null -S "http://trex:8080/WebAPI/info" 2>&1 | awk '/HTTP\//{print $$2; exit}')
-          echo "  attempt $$i: $$code"
-          [ "$$code" = "200" ] && { echo "[webapi-start] WebAPI is up"; exit 0; }
-          sleep 5
-        done
-        echo "[webapi-start] WebAPI did not come up in time" >&2
-        exit 1
-    restart: "no"
 
   # One-shot: after WebAPI is up (so flyway has created the webapi schema), load
   # source/source_daimon rows, auth users, and admin/proxy permissions.
@@ -215,12 +206,22 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-mypass}
       PGDATABASE: postgres
     depends_on:
-      webapi-start:
-        condition: service_completed_successfully
+      trex:
+        condition: service_healthy
     entrypoint:
       - sh
       - -c
-      - 'for f in /scripts/*.sql; do echo "[db-init] $$f"; psql -v ON_ERROR_STOP=1 -f "$$f"; done'
+      - |
+        # trex reports healthy on :8001 well before the embedded WebAPI is
+        # serving on :8080, and these scripts need the flyway-created webapi
+        # schema, so wait for WebAPI itself rather than for the container.
+        echo "[db-init] waiting for WebAPI"
+        for i in $$(seq 1 60); do
+          wget -q -O /dev/null "http://trex:8080/WebAPI/info" && break
+          sleep 5
+        done
+        wget -q -O /dev/null "http://trex:8080/WebAPI/info" || { echo "[db-init] WebAPI never came up" >&2; exit 1; }
+        for f in /scripts/*.sql; do echo "[db-init] $$f"; psql -v ON_ERROR_STOP=1 -f "$$f"; done
     restart: "no"
 
   # Atlas3 Caddy/Vite UI, built from third_party/Atlas3. Atlas3 externalized
@@ -229,6 +230,20 @@ services:
   # image's /srv/atlas/config-local.json. The vendored ./Caddyfile is mounted
   # over the image's copy; WEBAPI_HOST=trex points /WebAPI/* at the node.
   atlas3-frontend:
+    # Pinned to a published ATLAS build. ATLAS is an application, not a library
+    # (package.json is `private: true`), so there is no npm install of it — the
+    # container image is how it ships, and OHDSI/Atlas3 publishes one per commit.
+    # Pinning a sha keeps the stack reproducible the same way the trexsql digest
+    # does, and drops a 531 MB submodule checkout plus a local build from the
+    # loop.
+    #
+    # The build stanza stays for the case that actually needs the source:
+    # changing ATLAS itself. `docker compose build atlas3-frontend` builds from
+    # third_party/Atlas3 and shadows the pinned image locally; plain `up -d`
+    # pulls the pin. Bump ATLAS_IMAGE (or the default) once a change is merged
+    # and published.
+    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-75a31d9}
+    pull_policy: missing
     build:
       context: ./third_party/Atlas3
       dockerfile: Dockerfile
@@ -238,6 +253,8 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./atlas-config-local.json:/srv/atlas/config-local.json:ro
+      # Plugin manifest minus the image's undeployed hello-world demo plugin.
+      - ./atlas-plugins-local.json:/srv/atlas/config/plugins.json:ro
       - atlas3-caddy-data:/data
       # Pythia micro-frontend (built from this repo's `develop` branch) + the
       # single-spa-vue runtime, served at /atlas/pythia-plugin and /atlas/vendor.

@@ -19,3 +19,13 @@ docs/superpowers/
 
 .worktrees/
 .gstack/
+
+# Demo recordings. The mp4/webm are large (25-35 MB per take) and would live in
+# git history forever — upload the mp4 as a GitHub attachment (issue/release)
+# and let the README embed that URL. The small highlight GIF IS committed.
+figures/*.mp4
+figures/*.webm
+!figures/demo-highlight.gif
+
+# TrexSQL per-source cache (bind-mounted into trex; rebuilt on demand)
+/trexsql-cache/

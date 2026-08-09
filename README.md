@@ -18,6 +18,19 @@ contains both halves of it:
 - **`tests/`** — unit tests for the frontend plugin; agent tests and live
   evals live under `agent/`.
 
+## Demo
+
+Pythia designing a treatment pathway analysis end to end against the OHDSI
+Eunomia demo database: proposing criteria, having one proposal rejected and
+adapting, saving three cohorts, assembling the pathway analysis, running it,
+and then reading its own results back — 2,040 of 2,689 sinusitis patients
+(75.9%) had a recorded antibiotic pathway, amoxicillin-only dominating at 70%.
+
+![Pythia builds and runs a pathway analysis](figures/demo-highlight.gif)
+
+Full walkthrough (4:08) — attached to the release; the `.mp4` is deliberately
+not committed so it stays out of git history.
+
 ## Running with Docker
 
 ```bash

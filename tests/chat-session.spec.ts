@@ -5,6 +5,7 @@ import {
   buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
   acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
   proposalKind,
+  CLIENT_SIDE_TOOLS,
 } from '../src/chat-session'
 import { applyCreatePlan, activePlan, resetPlans } from '../src/plan-state'
 import type { Plan } from '../src/types'
@@ -41,6 +42,14 @@ describe('proposalKind (fidelity with ATLAS translateCapability)', () => {
       ['update_characterization', { id: 1 }, 'updateCharacterization'],
       ['update_pathway', { id: 1 }, 'updatePathway'],
       ['update_incidence_rate', { id: 1 }, 'updateIncidenceRate'],
+      ['add_demographic_criterion', { minAge: 18 }, 'addInclusionRule'],
+      ['add_qualifying_criterion', { conceptId: 1, conceptName: 'x' }, 'addQualifyingCriterion'],
+      ['set_event_limits', { entryEvents: 'first' }, 'setEventLimits'],
+      ['set_censor_window', { startDate: '2015-01-01' }, 'setCensorWindow'],
+      ['set_era_collapse', { gapDays: 30 }, 'setEraCollapse'],
+      ['use_concept_set', { conceptSetId: 7 }, 'useConceptSet'],
+      ['remove_inclusion_rule', { name: 'x' }, 'removeInclusionRule'],
+      ['remove_entry_event', { conceptId: 1 }, 'removeEntryEvent'],
       ['not_a_real_tool', {}, null],
     ]
     for (const [name, args, expected] of cases) {
@@ -633,5 +642,160 @@ describe('recordAndMaybeAutoAccept', () => {
     await Promise.resolve()
 
     expect(proposals.value['tc-raa-3'].status).toBe('pending')
+  })
+})
+
+// Regression: typing a chat message while a proposal card is still on screen
+// used to leave that tool call unresolved. The next request then carried an
+// assistant tool call with no matching tool result and the AI SDK aborted with
+// AI_MissingToolResultsError — surfacing as "An error occurred." and a dead
+// session. send() now dismisses anything still pending first.
+describe('dismissPendingProposals (typed reply while a proposal is pending)', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('resolves every pending proposal so no tool call is left without a result', async () => {
+    const { recordProposal, dismissPendingProposals } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal({
+      toolCallId: 'tc-d1',
+      toolName: 'set_entry_event',
+      input: { name: 'Diclofenac' },
+    }, { addToolResult })
+    recordProposal({
+      toolCallId: 'tc-d2',
+      toolName: 'add_inclusion_rule',
+      input: { name: 'GI bleed' },
+    }, { addToolResult })
+    expect(addToolResult).not.toHaveBeenCalled()
+
+    const n = await dismissPendingProposals({ addToolResult })
+
+    expect(n).toBe(2)
+    expect(addToolResult).toHaveBeenCalledTimes(2)
+    for (const id of ['tc-d1', 'tc-d2']) {
+      expect(proposals.value[id].status).toBe('dismissed')
+      expect(addToolResult).toHaveBeenCalledWith(expect.objectContaining({
+        toolCallId: id,
+        output: expect.objectContaining({ decision: 'dismissed' }),
+      }))
+    }
+  })
+
+  it('leaves already-decided proposals alone', async () => {
+    const { recordProposal, resolveProposal, dismissPendingProposals } =
+      await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal({
+      toolCallId: 'tc-d3',
+      toolName: 'add_criteria',
+      input: { name: 'Test', group: 'inclusion', logic: 'AND', items: [] },
+    }, { addToolResult })
+    resolveProposal('tc-d3', 'rejected', { addToolResult })
+    addToolResult.mockClear()
+
+    expect(await dismissPendingProposals({ addToolResult })).toBe(0)
+    expect(addToolResult).not.toHaveBeenCalled()
+    expect(proposals.value['tc-d3'].status).toBe('rejected')
+  })
+})
+
+// Regression: cards used to render in one block after the whole transcript, so
+// a proposal belonging to an earlier assistant message appeared BELOW every
+// later reply — the conversation read out of order. Cards carry the parent
+// message id in `groupId`; ChatPanel now buckets by it and renders each card
+// under its own message, with a fallback for ones it can't anchor.
+describe('proposal/ask cards anchor to their parent message', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('records the parent message id so cards can be placed inline', async () => {
+    const { recordProposal } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal(
+      { toolCallId: 'tc-a1', toolName: 'set_entry_event', input: { name: 'Amoxicillin' } },
+      { addToolResult },
+      { groupId: 'msg-1', groupIndex: 0 }
+    )
+    recordProposal(
+      { toolCallId: 'tc-a2', toolName: 'add_inclusion_rule', input: { name: 'GI bleed' } },
+      { addToolResult },
+      { groupId: 'msg-2', groupIndex: 0 }
+    )
+
+    expect(proposals.value['tc-a1'].groupId).toBe('msg-1')
+    expect(proposals.value['tc-a2'].groupId).toBe('msg-2')
+
+    // Bucketing by groupId is what lets the template render each card under
+    // its own message rather than dumping both at the bottom.
+    const byMessage = new Map<string, string[]>()
+    for (const p of Object.values(proposals.value)) {
+      const list = byMessage.get(p.groupId!) ?? []
+      list.push(p.id)
+      byMessage.set(p.groupId!, list)
+    }
+    expect([...byMessage.keys()].sort()).toEqual(['msg-1', 'msg-2'])
+    expect(byMessage.get('msg-1')).toEqual(['tc-a1'])
+    expect(byMessage.get('msg-2')).toEqual(['tc-a2'])
+  })
+})
+
+// Resolved cards are the audit trail: they record what the agent proposed and
+// what the researcher decided. They used to delete themselves a couple of
+// seconds after the decision, so the transcript ended up showing an analysis
+// with no evidence of anyone approving it. They must survive in state (and
+// therefore in the persisted session).
+describe('resolved proposals stay in the transcript', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(proposals.value)) delete proposals.value[k]
+  })
+
+  it('keeps an accepted proposal, marked accepted', async () => {
+    const { recordProposal, resolveProposal } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal(
+      { toolCallId: 'tc-keep1', toolName: 'set_entry_event', input: { name: 'Sinusitis' } },
+      { addToolResult }
+    )
+    resolveProposal('tc-keep1', 'accepted', { addToolResult })
+    expect(proposals.value['tc-keep1']).toBeDefined()
+    expect(proposals.value['tc-keep1'].status).toBe('accepted')
+  })
+
+  it('keeps a rejected proposal, marked rejected', async () => {
+    const { recordProposal, resolveProposal } = await import('../src/chat-session')
+    const addToolResult = vi.fn()
+    recordProposal(
+      { toolCallId: 'tc-keep2', toolName: 'save_cohort', input: { name: 'Sinusitis cohort' } },
+      { addToolResult }
+    )
+    resolveProposal('tc-keep2', 'rejected', { addToolResult })
+    expect(proposals.value['tc-keep2']).toBeDefined()
+    expect(proposals.value['tc-keep2'].status).toBe('rejected')
+  })
+})
+
+// A capability the panel does not know is client-side gets no proposal card, so
+// its tool call is never resolved — the next message then dies with
+// AI_MissingToolResultsError and the session is unrecoverable. That is how a
+// whole recording was lost, so assert the two lists agree.
+describe('every proposal capability is registered as client-side', () => {
+  it('CLIENT_SIDE_TOOLS covers every tool proposalKind can map', () => {
+    const mappable = [
+      'add_criterion', 'add_criteria', 'set_entry_event', 'set_observation_window',
+      'add_exit_criterion', 'set_censor_event', 'add_inclusion_rule', 'save_cohort',
+      'create_standalone_concept_set', 'create_feature_analysis', 'create_characterization',
+      'create_pathway', 'create_incidence_rate', 'update_concept_set',
+      'update_feature_analysis', 'update_characterization', 'update_pathway',
+      'update_incidence_rate', 'generate_analysis', 'add_demographic_criterion',
+      'add_qualifying_criterion', 'set_event_limits', 'set_censor_window',
+      'set_era_collapse', 'use_concept_set', 'remove_inclusion_rule', 'remove_entry_event',
+    ]
+    for (const name of mappable) {
+      expect(proposalKind(name, {}), `${name} has no kind`).toBeTruthy()
+      expect(CLIENT_SIDE_TOOLS.has(name), `${name} is not in CLIENT_SIDE_TOOLS`).toBe(true)
+    }
   })
 })

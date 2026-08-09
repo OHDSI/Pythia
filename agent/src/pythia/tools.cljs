@@ -11,12 +11,14 @@
             [pythia.tools.get-artifact :as get-artifact]
             [pythia.tools.review-artifact :as review-artifact]
             [pythia.tools.get-cohort-generation-summary :as get-cohort-generation-summary]
+            [pythia.tools.get-analysis-results :as get-analysis-results]
             [pythia.tools.summarise-attrition :as summarise-attrition]
             [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
             [pythia.tools.draft-concept-set-spec :as draft-concept-set-spec]
             [pythia.tools.search-ohdsi-studies :as search-ohdsi-studies]
             [pythia.tools.web-search :as web-search]
             [pythia.tools.search-phenotypes :as search-phenotypes]
+            [pythia.tools.phenotype-patterns :as phenotype-patterns]
             [pythia.tools.get-reference-phenotype :as get-reference-phenotype]
             [pythia.tools.validate-circe :as validate-circe]
             [pythia.tools.search-ohdsi-book :as search-ohdsi-book]
@@ -37,12 +39,14 @@
    get-artifact/tool
    review-artifact/tool
    get-cohort-generation-summary/tool
+   get-analysis-results/tool
    summarise-attrition/tool
    get-cohort-overlap/tool
    draft-concept-set-spec/tool
    search-ohdsi-studies/tool
    web-search/tool
    search-phenotypes/tool
+   phenotype-patterns/tool
    get-reference-phenotype/tool
    validate-circe/tool
    search-ohdsi-book/tool

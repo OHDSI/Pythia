@@ -1,0 +1,46 @@
+{
+  "$comment": "Runtime Atlas3 plugin manifest, mounted over the image's /srv/atlas/config/plugins.json (see docker-compose.yml). Identical to the shipped file minus the `hello-world-plugin` entry: the Atlas OSS image declares that demo plugin but does not ship its bundle, so its entryPoint resolves to Caddy's SPA fallback (index.html) and PluginLoader throws `Unexpected token '<'` on every page load. Harmless but noisy — dropping the entry keeps the console clean.",
+  "version": "1.0",
+  "plugins": [
+    {
+      "id": "pythia-plugin",
+      "name": "Pythia",
+      "version": "0.1.0",
+      "entryPoint": "pythia-plugin/index.system.js",
+      "menuItems": [],
+      "fabMounts": [
+        {
+          "id": "pythia.fab",
+          "label": "Pythia — design assistant",
+          "icon": "mdi-chat-processing-outline",
+          "color": "primary",
+          "position": "bottom-right"
+        }
+      ],
+      "metadata": {
+        "author": "Atlas Team",
+        "description": "Pythia — AI-assisted cohort design advisor for ATLAS v3.0"
+      }
+    }
+  ],
+  "settings": {
+    "enableHotReload": true,
+    "loadTimeout": 30000,
+    "pluginsPath": "plugins",
+    "showLoadingIndicators": true,
+    "navigation": {
+      "enabledCoreItems": [
+        "datasources",
+        "concepts",
+        "cohorts",
+        "analysis",
+        "characterizations",
+        "featureAnalyses",
+        "pathways"
+      ]
+    },
+    "theme": {
+      "primaryColor": "#1f425a"
+    }
+  }
+}

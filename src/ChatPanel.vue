@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { AuthContext, MessageBus, Translator } from './main'
@@ -15,7 +15,11 @@ import {
   autoApproveProposals,
   clearCurrentSession,
   continueChat,
+  clearAutoSendSuppression,
+  disarmAutoSend,
+  isAutoSendArmed,
   deleteChatSession,
+  dismissPendingProposals,
   getChatInstance,
   maxStepsReached,
   newChat,
@@ -43,6 +47,9 @@ import CharacterizationProposalCard from './CharacterizationProposalCard.vue'
 import PathwayProposalCard from './PathwayProposalCard.vue'
 import IncidenceRateProposalCard from './IncidenceRateProposalCard.vue'
 import UpdateProposalCard from './UpdateProposalCard.vue'
+import CohortSettingProposalCard from './CohortSettingProposalCard.vue'
+import GenerateAnalysisProposalCard from './GenerateAnalysisProposalCard.vue'
+import SaveCohortProposalCard from './SaveCohortProposalCard.vue'
 import ProposalGroupCard from './ProposalGroupCard.vue'
 import AskUserCard from './AskUserCard.vue'
 import StarterPrompts from './StarterPrompts.vue'
@@ -108,6 +115,142 @@ const proposalGroups = computed<ProposalGroup[]>(() => {
   return Array.from(buckets.values())
 })
 
+// Cards are anchored to the assistant message whose tool call produced them.
+// Rendering every card in one block after the transcript (as this used to)
+// put a card from the middle of the conversation *below* everything the model
+// said afterwards — so the reply read out of order.
+const groupsByMessage = computed<Map<string, ProposalGroup[]>>(() => {
+  const byMsg = new Map<string, ProposalGroup[]>()
+  for (const g of proposalGroups.value) {
+    const anchor = g.items[0]?.groupId
+    if (!anchor) continue
+    const list = byMsg.get(anchor) ?? []
+    list.push(g)
+    byMsg.set(anchor, list)
+  }
+  return byMsg
+})
+
+const asksByMessage = computed<Map<string, AskState[]>>(() => {
+  const byMsg = new Map<string, AskState[]>()
+  for (const a of askList.value) {
+    if (!a.groupId) continue
+    const list = byMsg.get(a.groupId) ?? []
+    list.push(a)
+    byMsg.set(a.groupId, list)
+  }
+  return byMsg
+})
+
+// Place each card immediately after the tool call that produced it. Anchoring
+// only to the parent MESSAGE isn't enough: the model usually writes its summary
+// text after the tool calls, so cards appended at the end of the message still
+// rendered below that text (and below the typing dots). `groupIndex` is the
+// ordinal of the tool part within the message, which is exactly what we need.
+// Where each tool call actually sits right now. `groupId` is captured when the
+// proposal is recorded, and if the tool part hasn't been committed to
+// chat.messages yet it comes back undefined — the card is then orphaned and
+// stuck at the bottom of the transcript for the rest of the session. Resolving
+// the anchor at render time is self-healing: as soon as the part exists, the
+// card snaps to its place in the conversation.
+const anchorByCallId = computed(() => {
+  const m = new Map<string, { msgId: string; partIdx: number }>()
+  for (const msg of messages.value) {
+    const parts = (msg.parts ?? []) as Array<{ type?: string; toolCallId?: string }>
+    parts.forEach((part, idx) => {
+      const t = part?.type
+      if (typeof t === 'string' && t.startsWith('tool-') && part.toolCallId) {
+        m.set(part.toolCallId, { msgId: msg.id, partIdx: idx })
+      }
+    })
+  }
+  return m
+})
+
+const cardsByPart = computed(() => {
+  const out = new Map<string, Map<number, { groups: ProposalGroup[]; asks: AskState[] }>>()
+  const put = (msgId: string, partIdx: number, key: 'groups' | 'asks', item: never) => {
+    let byIdx = out.get(msgId)
+    if (!byIdx) { byIdx = new Map(); out.set(msgId, byIdx) }
+    let bucket = byIdx.get(partIdx)
+    if (!bucket) { bucket = { groups: [], asks: [] }; byIdx.set(partIdx, bucket) }
+    ;(bucket[key] as unknown[]).push(item)
+  }
+  for (const g of proposalGroups.value) {
+    // A group renders at its FIRST item's tool call.
+    const anchor = anchorByCallId.value.get(g.items[0]?.id ?? '')
+    if (anchor) put(anchor.msgId, anchor.partIdx, 'groups', g as never)
+  }
+  for (const a of askList.value) {
+    const anchor = anchorByCallId.value.get(a.id)
+    if (anchor) put(anchor.msgId, anchor.partIdx, 'asks', a as never)
+  }
+  return out
+})
+
+const NO_CARDS: { groups: ProposalGroup[]; asks: AskState[] } = { groups: [], asks: [] }
+
+// A turn often fires the same tool many times in a row (six search_concepts
+// while it resolves a concept set). Six identical chips is noise; one chip with
+// a count says the same thing. Consecutive runs only — a later, separate run of
+// the same tool stays its own chip, because the order tells a story.
+interface DisplayRow {
+  kind: 'text' | 'tool'
+  part: unknown
+  idxs: number[]
+  name?: string
+  count?: number
+}
+
+function displayRows(msg: { id: string; parts?: unknown[] }): DisplayRow[] {
+  const rows: DisplayRow[] = []
+  const parts = (msg.parts ?? []) as Array<{ type?: string }>
+  parts.forEach((part, idx) => {
+    const t = part?.type
+    const isTool = typeof t === 'string' && t.startsWith('tool-')
+    if (!isTool) {
+      rows.push({ kind: 'text', part, idxs: [idx] })
+      return
+    }
+    const name = (t as string).replace(/^tool-/, '')
+    const last = rows[rows.length - 1]
+    if (last && last.kind === 'tool' && last.name === name) {
+      last.count = (last.count ?? 1) + 1
+      last.idxs.push(idx)
+      return
+    }
+    rows.push({ kind: 'tool', part, idxs: [idx], name, count: 1 })
+  })
+  return rows
+}
+
+function cardsAt(msgId: string, partIdx: number) {
+  return cardsByPart.value.get(msgId)?.get(partIdx) ?? NO_CARDS
+}
+
+// Cards whose tool part we couldn't locate still render after the message.
+function trailingCards(msgId: string) {
+  const placed = new Set<string>()
+  for (const bucket of (cardsByPart.value.get(msgId)?.values() ?? [])) {
+    bucket.groups.forEach(g => placed.add('g:' + g.id))
+    bucket.asks.forEach(a => placed.add('a:' + a.id))
+  }
+  return {
+    groups: (groupsByMessage.value.get(msgId) ?? []).filter(g => !placed.has('g:' + g.id)),
+    asks: (asksByMessage.value.get(msgId) ?? []).filter(a => !placed.has('a:' + a.id)),
+  }
+}
+
+// Anything we can't anchor (legacy cards persisted before groupId existed, or
+// whose parent message is no longer in the transcript) still has to render —
+// it falls to the bottom, exactly as before.
+const orphanGroups = computed(() =>
+  proposalGroups.value.filter(g => !anchorByCallId.value.has(g.items[0]?.id ?? ''))
+)
+const orphanAsks = computed(() =>
+  askList.value.filter(a => !anchorByCallId.value.has(a.id))
+)
+
 // The last assistant message — that's where the typing indicator attaches
 // while a response is streaming. We track it by id so a brand-new
 // assistant message that hasn't received any text part yet still gets the
@@ -130,6 +273,20 @@ const showTypingIndicator = computed(() => {
 // ABOVE the typing indicator. When the last part isn't text (e.g. a
 // fresh tool-call chip), this returns false and the standalone bubble
 // below picks up the indicator.
+// Cards for a message render after its parts, so the dots glued to a trailing
+// text bubble would sit ABOVE them. Whenever a message has cards, fall back to
+// the standalone bubble, which renders after the whole message and therefore
+// below the cards.
+function hasCardsFor(msgId: string): boolean {
+  // Orphan cards (no groupId, so not tied to any message) render after the
+  // whole transcript. If we leave the inline dots on, they sit ABOVE those
+  // cards. Any card on screen means the dots belong in the standalone bubble,
+  // which renders last.
+  if (orphanGroups.value.length > 0 || orphanAsks.value.length > 0) return true
+  return (groupsByMessage.value.get(msgId)?.length ?? 0) > 0 ||
+    (asksByMessage.value.get(msgId)?.length ?? 0) > 0
+}
+
 function isTrailingAssistantTextPart(
   msg: { id: string; role: string; parts?: unknown[] },
   partIdx: number
@@ -137,6 +294,7 @@ function isTrailingAssistantTextPart(
   if (!showTypingIndicator.value) return false
   if (msg.role !== 'assistant') return false
   if (lastAssistantMessage.value?.id !== msg.id) return false
+  if (hasCardsFor(msg.id)) return false
   const parts = (msg.parts ?? []) as Array<{ type?: string }>
   if (partIdx !== parts.length - 1) return false
   return !!textOf(parts[partIdx])
@@ -154,6 +312,9 @@ const showStandaloneTypingBubble = computed(() => {
     const tail = messages.value[messages.value.length - 1]
     return tail?.role === 'user'
   }
+  // Cards render below this message's text, so the indicator belongs here,
+  // under them, rather than inline in the text bubble above.
+  if (hasCardsFor(last.id)) return true
   const parts = (last.parts ?? []) as Array<{ type?: string }>
   const tailPart = parts[parts.length - 1]
   // If the last part is text, the trailing dots inside the text bubble
@@ -259,11 +420,25 @@ function cardComponentFor(toolName: string) {
     case 'create_characterization': return CharacterizationProposalCard
     case 'create_pathway': return PathwayProposalCard
     case 'create_incidence_rate': return IncidenceRateProposalCard
+    case 'generate_analysis': return GenerateAnalysisProposalCard
+    // Without this, save_cohort fell through to the concept card and rendered
+    // as "Unnamed concept" — it carries a cohort name, not a concept.
+    case 'save_cohort': return SaveCohortProposalCard
     case 'update_concept_set':
     case 'update_feature_analysis':
     case 'update_characterization':
     case 'update_pathway':
     case 'update_incidence_rate': return UpdateProposalCard
+    // The parts of a cohort that carry no concept. Without these they fell
+    // through to CriterionProposalCard and rendered "Unnamed concept", which is
+    // not something a user can approve meaningfully.
+    case 'add_demographic_criterion':
+    case 'set_event_limits':
+    case 'set_censor_window':
+    case 'set_era_collapse':
+    case 'use_concept_set':
+    case 'remove_inclusion_rule':
+    case 'remove_entry_event': return CohortSettingProposalCard
     default: return CriterionProposalCard
   }
 }
@@ -271,6 +446,10 @@ function cardComponentFor(toolName: string) {
 async function send(text: string) {
   const trimmed = text.trim()
   if (!trimmed || isStreaming.value) return
+  // Clear the composer as soon as the message is on its way. Clearing only
+  // after `sendMessage` resolves left the text sitting in the box for the whole
+  // turn, which reads as "it didn't send" and invites a double submit.
+  inputText.value = ''
   maxStepsReached.value = false
   // If there are pending ask_user prompts and the user typed instead of
   // clicking, mark them resolved so the buttons disable and the card
@@ -280,9 +459,16 @@ async function send(text: string) {
     if (a.status === 'pending') {
       a.status = 'answered'
       a.chosen = { label: '(typed reply)' }
-      dismissAskLater(a.id, DISMISS_ANSWERED_MS)
     }
   }
+  // Wait for any in-flight or just-armed request before adding ours.
+  await waitForSendSlot()
+  // Pending proposal cards are unresolved tool calls. Sending a message while
+  // one is outstanding makes the SDK throw AI_MissingToolResultsError and kills
+  // the session, so resolve them as 'dismissed' first.
+  await dismissPendingProposals(chat)
+  // Dismissing resolves tool calls, which can itself arm an auto-continue.
+  await waitForSendSlot()
   // Re-fetch shell context per send so the model sees the user's CURRENT
   // route + open artifact, not whatever was true at panel-mount time. The
   // body callback in chat-session reads sessionRouteContext.value at
@@ -294,11 +480,31 @@ async function send(text: string) {
   } catch {
     // Stale context is preferable to no context — keep last known.
   }
+  disarmAutoSend()
   await chat.sendMessage({ text: trimmed })
-  inputText.value = ''
+  clearAutoSendSuppression()
 }
 
-function onAnswer(askId: string, answer: { id?: string; label: string }) {
+// The ask_user tool result is recorded the moment the tool call lands, which
+// can itself satisfy sendAutomaticallyWhen and start an auto-continue request.
+// Firing the user's answer into that in-flight request gives the SDK two
+// concurrent makeRequest calls and it reads state off an undefined active
+// response ("Cannot read properties of undefined (reading 'state')"), killing
+// the session. Wait for the current request to settle first.
+// Safe to start a request only when nothing is in flight AND no auto-continue
+// has been armed but not yet started. Checking `isStreaming` alone leaves a
+// window in which a second concurrent request is issued, which the SDK cannot
+// survive (it reads state off an undefined active response and the session
+// dies with "An error occurred.").
+async function waitForSendSlot(timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs
+  while ((isStreaming.value || isAutoSendArmed()) && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 100))
+  }
+}
+
+
+async function onAnswer(askId: string, answer: { id?: string; label: string }) {
   const a = asks.value[askId]
   if (!a || a.status !== 'pending') return
   a.status = 'answered'
@@ -310,8 +516,9 @@ function onAnswer(askId: string, answer: { id?: string; label: string }) {
   // for this ask; for any others still pending the model just hasn't
   // gotten back to them yet. In practice there's only one pending ask at
   // a time.
+  await waitForSendSlot()
+  disarmAutoSend()
   void chat.sendMessage({ text: answer.label })
-  dismissAskLater(askId, DISMISS_ANSWERED_MS)
 }
 
 function onClearSession() {
@@ -368,24 +575,12 @@ function onSubmit(e: Event) {
   send(inputText.value)
 }
 
-// Resolved proposal cards self-dismiss after a short delay so the chat
-// stream stays clean. Accepted cards linger ~2.5s to give the user a beat
-// of "applied!" feedback; rejected cards disappear faster.
-const DISMISS_ACCEPTED_MS = 2500
-const DISMISS_REJECTED_MS = 1500
-const DISMISS_ANSWERED_MS = 2000
-
-function dismissProposalLater(id: string, delay: number) {
-  setTimeout(() => {
-    delete proposals.value[id]
-  }, delay)
-}
-
-function dismissAskLater(id: string, delay: number) {
-  setTimeout(() => {
-    delete asks.value[id]
-  }, delay)
-}
+// Resolved cards STAY in the transcript. They used to delete themselves a
+// couple of seconds after a decision "to keep the stream clean", but that threw
+// away the record of what was proposed and what the user did about it — the one
+// thing a reviewer needs to audit an agent-built cohort. Resolved cards already
+// render in a compact, muted state ("Added to cohort" / "Rejected" / "Saved"),
+// and they are persisted with the session, so the history survives a reload.
 
 function onToggleAutoApprove() {
   setAutoApproveProposals(!autoApproveProposals.value)
@@ -393,7 +588,6 @@ function onToggleAutoApprove() {
 
 async function onAccept(id: string) {
   await acceptProposal(id, { addToolResult: (r) => chat.addToolResult(r) })
-  dismissProposalLater(id, DISMISS_ACCEPTED_MS)
 }
 
 function onOpenStep(step: PlanStep) {
@@ -414,7 +608,6 @@ function onReject(id: string) {
   p.status = 'rejected'
   rejectProposal(props.messageBus, id)
   resolveProposal(id, 'rejected', { addToolResult: (r) => chat.addToolResult(r) })
-  dismissProposalLater(id, DISMISS_REJECTED_MS)
 }
 
 function onAcceptGroup(groupId: string) {
@@ -432,14 +625,43 @@ function pickStarter(text: string) {
 }
 
 // Smooth scroll to bottom on new chunks while user is near bottom.
+// Whether the transcript should stay pinned to the bottom. This has to be
+// measured from the user's own scrolling, NOT re-derived after each update:
+// checking "am I near the bottom?" inside nextTick measures the container
+// AFTER the new content landed, so one big streamed chunk (or a plan card)
+// pushes the gap past the threshold in a single tick and auto-scroll switches
+// itself off for the rest of the turn — new text then streams in off-screen.
+const stickToBottom = ref(true)
+
+function updateStickiness() {
+  const el = messagesContainer.value
+  if (!el) return
+  stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 200
+}
+
 function maybeScrollToBottom() {
   nextTick(() => {
     const el = messagesContainer.value
-    if (!el) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200
-    if (nearBottom) el.scrollTop = el.scrollHeight
+    if (!el || !stickToBottom.value) return
+    el.scrollTop = el.scrollHeight
   })
 }
+// Watching messages alone misses everything that isn't a message: proposal and
+// ask cards, the plan card, resolved-state changes. Those grow the transcript
+// too, and without this the panel stays put while new content lands off-screen.
+// A MutationObserver on the container catches all of it, whatever the source.
+let scrollObserver: MutationObserver | null = null
+onMounted(() => {
+  const el = messagesContainer.value
+  if (!el || typeof MutationObserver === 'undefined') return
+  scrollObserver = new MutationObserver(() => maybeScrollToBottom())
+  scrollObserver.observe(el, { childList: true, subtree: true, characterData: true })
+})
+onBeforeUnmount(() => {
+  scrollObserver?.disconnect()
+  scrollObserver = null
+})
+
 watch(() => messages.value.length, maybeScrollToBottom)
 watch(
   () => {
@@ -492,6 +714,42 @@ function applySize(w: number, h: number) {
   // sizes can exceed the host default while still respecting our own max.
   overlayPanel.style.maxWidth = 'none'
   overlayPanel.style.maxHeight = 'none'
+}
+
+// Full-screen mode. The host pins the panel bottom-right at a fixed size; for
+// reading a long transcript or a wide proposal table that's cramped, so let the
+// user blow it up to the whole viewport and back. The pre-fullscreen size is
+// remembered in memory (not persisted) so restoring returns exactly where they
+// were, including a size they had dragged to.
+const isFullscreen = ref(false)
+let sizeBeforeFullscreen: { w: number; h: number } | null = null
+
+function toggleFullscreen() {
+  if (!overlayPanel) overlayPanel = findOverlayPanel()
+  const el = overlayPanel
+  if (!el) return
+  if (isFullscreen.value) {
+    el.style.inset = ''
+    el.style.top = ''
+    el.style.left = ''
+    el.style.bottom = '24px'
+    el.style.right = '24px'
+    if (sizeBeforeFullscreen) applySize(sizeBeforeFullscreen.w, sizeBeforeFullscreen.h)
+    isFullscreen.value = false
+    return
+  }
+  const r = el.getBoundingClientRect()
+  sizeBeforeFullscreen = { w: Math.round(r.width), h: Math.round(r.height) }
+  el.style.inset = '12px'
+  el.style.top = '12px'
+  el.style.left = '12px'
+  el.style.bottom = '12px'
+  el.style.right = '12px'
+  el.style.width = 'auto'
+  el.style.height = 'auto'
+  el.style.maxWidth = 'none'
+  el.style.maxHeight = 'none'
+  isFullscreen.value = true
 }
 
 function loadSavedSize() {
@@ -624,6 +882,16 @@ onMounted(async () => {
       </v-toolbar-title>
       <v-spacer />
       <v-btn
+        :title="isFullscreen
+          ? t('cohortAgent.exitFullscreen', 'Exit full screen')
+          : t('cohortAgent.fullscreen', 'Full screen')"
+        :icon="isFullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'"
+        size="small"
+        variant="text"
+        data-testid="pythia-fullscreen-toggle"
+        @click="toggleFullscreen"
+      />
+      <v-btn
         :title="autoApproveProposals
           ? t('cohortAgent.autoApproveOn', 'Auto-approve proposals: On')
           : t('cohortAgent.autoApproveOff', 'Auto-approve proposals: Off')"
@@ -708,6 +976,7 @@ onMounted(async () => {
     <div
       ref="messagesContainer"
       class="cohort-agent-chat__messages"
+      @scroll="updateStickiness"
     >
       <StarterPrompts
         v-if="messages.length === 0"
@@ -718,27 +987,29 @@ onMounted(async () => {
         v-for="msg in messages"
         :key="msg.id"
       >
+        <template
+          v-for="row in displayRows(msg)"
+          :key="`${msg.id}-${row.idxs[0]}`"
+        >
         <div
-          v-for="(part, idx) in (msg.parts || [])"
-          :key="`${msg.id}-${idx}`"
           class="cohort-agent-chat__row"
           :class="`cohort-agent-chat__row--${msg.role}`"
         >
           <!-- User messages stay plain text; assistant/system render markdown. -->
           <div
-            v-if="textOf(part) && msg.role === 'user'"
+            v-if="textOf(row.part) && msg.role === 'user'"
             class="cohort-agent-chat__bubble cohort-agent-chat__bubble--user"
           >
-            {{ textOf(part) }}
+            {{ textOf(row.part) }}
           </div>
           <div
-            v-else-if="textOf(part)"
+            v-else-if="textOf(row.part)"
             class="cohort-agent-chat__bubble cohort-agent-chat__markdown"
             :class="`cohort-agent-chat__bubble--${msg.role}`"
           >
-            <span v-html="renderMarkdown(textOf(part))" />
+            <span v-html="renderMarkdown(textOf(row.part))" />
             <span
-              v-if="isTrailingAssistantTextPart(msg, idx)"
+              v-if="isTrailingAssistantTextPart(msg, row.idxs[0])"
               class="cohort-agent-chat__typing cohort-agent-chat__typing--trailing"
               aria-label="Assistant is typing"
             >
@@ -749,7 +1020,7 @@ onMounted(async () => {
           </div>
 
           <v-chip
-            v-else-if="typeof part.type === 'string' && part.type.startsWith('tool-')"
+            v-else-if="row.kind === 'tool'"
             size="small"
             variant="tonal"
             color="info"
@@ -762,36 +1033,95 @@ onMounted(async () => {
                 size="18"
               />
             </template>
-            {{ part.type.replace(/^tool-/, '') }}
+            {{ row.name }}
+            <span
+              v-if="(row.count ?? 1) > 1"
+              class="cohort-agent-chat__tool-count"
+            >{{ row.count }}</span>
           </v-chip>
         </div>
+
+        <!-- Cards belonging to THIS tool call, rendered immediately after it so
+             the model's later summary text can't end up above them. Siblings of
+             the row, so they use the panel's full width. -->
+        <template
+          v-for="i in row.idxs"
+          :key="`${msg.id}-cards-${i}`"
+        >
+        <AskUserCard
+          v-for="ask in cardsAt(msg.id, i).asks"
+          :key="ask.id"
+          :ask="ask"
+          @answer="onAnswer"
+        />
+        <template
+          v-for="group in cardsAt(msg.id, i).groups"
+          :key="group.id"
+        >
+          <component
+            :is="cardComponentFor(group.items[0].toolName)"
+            v-if="group.items.length === 1"
+            :proposal="group.items[0]"
+            @accept="onAccept"
+            @reject="onReject"
+          />
+          <ProposalGroupCard
+            v-else
+            :group-id="group.id"
+            :items="group.items"
+            :card-component-for="cardComponentFor"
+            @accept-all="onAcceptGroup"
+            @reject-all="onRejectGroup"
+            @accept-one="onAccept"
+            @reject-one="onReject"
+          />
+        </template>
+        </template>
+        </template>
+
+      <!-- Cards we could not tie to a specific tool part fall to the end of
+           the message rather than being dropped. -->
+      <AskUserCard
+        v-for="ask in trailingCards(msg.id).asks"
+        :key="ask.id"
+        :ask="ask"
+        @answer="onAnswer"
+      />
+      <template
+        v-for="group in trailingCards(msg.id).groups"
+        :key="group.id"
+      >
+          <component
+            :is="cardComponentFor(group.items[0].toolName)"
+            v-if="group.items.length === 1"
+            :proposal="group.items[0]"
+            @accept="onAccept"
+            @reject="onReject"
+          />
+          <ProposalGroupCard
+            v-else
+            :group-id="group.id"
+            :items="group.items"
+            :card-component-for="cardComponentFor"
+            @accept-all="onAcceptGroup"
+            @reject-all="onRejectGroup"
+            @accept-one="onAccept"
+            @reject-one="onReject"
+          />
+        </template>
       </template>
 
-      <div
-        v-if="showStandaloneTypingBubble"
-        class="cohort-agent-chat__row cohort-agent-chat__row--assistant"
-      >
-        <div
-          class="cohort-agent-chat__bubble cohort-agent-chat__bubble--assistant cohort-agent-chat__bubble--typing"
-          aria-label="Assistant is typing"
-        >
-          <span class="cohort-agent-chat__typing">
-            <span class="cohort-agent-chat__typing-dot" />
-            <span class="cohort-agent-chat__typing-dot" />
-            <span class="cohort-agent-chat__typing-dot" />
-          </span>
-        </div>
-      </div>
 
+      <!-- Cards that can't be anchored to a message still render at the end. -->
       <AskUserCard
-        v-for="ask in askList"
+        v-for="ask in orphanAsks"
         :key="ask.id"
         :ask="ask"
         @answer="onAnswer"
       />
 
       <template
-        v-for="group in proposalGroups"
+        v-for="group in orphanGroups"
         :key="group.id"
       >
         <component
@@ -812,6 +1142,22 @@ onMounted(async () => {
           @reject-one="onReject"
         />
       </template>
+
+      <div
+        v-if="showStandaloneTypingBubble"
+        class="cohort-agent-chat__row cohort-agent-chat__row--assistant"
+      >
+        <div
+          class="cohort-agent-chat__bubble cohort-agent-chat__bubble--assistant cohort-agent-chat__bubble--typing"
+          aria-label="Assistant is typing"
+        >
+          <span class="cohort-agent-chat__typing">
+            <span class="cohort-agent-chat__typing-dot" />
+            <span class="cohort-agent-chat__typing-dot" />
+            <span class="cohort-agent-chat__typing-dot" />
+          </span>
+        </div>
+      </div>
 
       <div
         v-if="maxStepsReached && !isStreaming"
@@ -1028,6 +1374,15 @@ onMounted(async () => {
 .cohort-agent-chat__text {
   white-space: pre-wrap;
   word-break: break-word;
+}
+.cohort-agent-chat__tool-count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.10);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .cohort-agent-chat__tool-chip {
   align-self: flex-start;
