@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="figures/pythia-logo.png" alt="Pythia" width="200">
-</p>
-
 <h1 align="center">Pythia</h1>
 
 <p align="center">
