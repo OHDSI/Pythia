@@ -21,8 +21,10 @@ an analysis shows without reading the generated result first.
 
 ## See it work
 
-Both recordings are unedited runs against the OHDSI Eunomia demo database.
-Click a picture to download the video.
+Both are real runs against the OHDSI Eunomia demo database, shortened by cutting
+the waiting: nothing is staged or re-ordered, but pauses while the assistant
+thinks or a cohort generates have been trimmed. Click a picture to download the
+video.
 
 ### Designing a phenotype
 
