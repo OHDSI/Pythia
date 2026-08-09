@@ -230,6 +230,20 @@ services:
   # image's /srv/atlas/config-local.json. The vendored ./Caddyfile is mounted
   # over the image's copy; WEBAPI_HOST=trex points /WebAPI/* at the node.
   atlas3-frontend:
+    # Pinned to a published ATLAS build. ATLAS is an application, not a library
+    # (package.json is `private: true`), so there is no npm install of it — the
+    # container image is how it ships, and OHDSI/Atlas3 publishes one per commit.
+    # Pinning a sha keeps the stack reproducible the same way the trexsql digest
+    # does, and drops a 531 MB submodule checkout plus a local build from the
+    # loop.
+    #
+    # The build stanza stays for the case that actually needs the source:
+    # changing ATLAS itself. `docker compose build atlas3-frontend` builds from
+    # third_party/Atlas3 and shadows the pinned image locally; plain `up -d`
+    # pulls the pin. Bump ATLAS_IMAGE (or the default) once a change is merged
+    # and published.
+    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-75a31d9}
+    pull_policy: missing
     build:
       context: ./third_party/Atlas3
       dockerfile: Dockerfile
