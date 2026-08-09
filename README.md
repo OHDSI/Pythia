@@ -55,6 +55,17 @@ saved, the analysis assembled from them, run against the data, and the result
 read back. Of 2,689 patients with sinusitis, 2,040 (75.9%) had a recorded
 antibiotic pathway, and amoxicillin on its own accounted for 70% of them.
 
+## Two ways to run it
+
+**On its own**, using the stack in this repository: ATLAS, the assistant, and a
+demo database, on one machine. That is what the rest of this page describes, and
+it is the quickest way to try Pythia.
+
+**As part of [Data2Evidence](https://github.com/OHDSI/Data2Evidence)**, the wider
+OHDSI platform, where Pythia ships alongside the rest of its services and runs
+against your own data. Follow that project's instructions instead of the ones
+below.
+
 ## What you need
 
 * Docker, with about 10 GB of free disk for the images and the demo database.
@@ -163,8 +174,3 @@ first start. `docker compose logs -f trex` shows when it is ready.
 
 **Pythia says it cannot find a concept.** Eunomia is a small synthetic dataset
 and many concepts are not in it. Try one of the conditions listed above.
-
-## Contributing
-
-The repository holds the ATLAS panel (`src/`) and the assistant itself
-(`agent/`). See `agent/README.md` to work on either.
