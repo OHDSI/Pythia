@@ -22,7 +22,13 @@
     ;; undo part of a cohort without rebuilding the whole definition
     "remove_inclusion_rule" "remove_entry_event"
     ;; reuse a concept set the user already curated
-    "use_concept_set"})
+    "use_concept_set"
+    ;; what community definitions of a condition actually contain
+    "phenotype_patterns"
+    ;; age / sex, the criteria with no concept set
+    "add_demographic_criterion"
+    ;; the rest of the cohort model the editor exposes
+    "set_event_limits" "add_qualifying_criterion" "set_censor_window" "set_era_collapse"})
 
 (def jvm-tool-names
   "Exact `:name` of every entry in JVM trexsql.agent.tools/tool-specs."
@@ -80,14 +86,14 @@
       (is (empty? (set/difference jvm-tool-names exposed))
           (str "missing CLJS names: " (set/difference jvm-tool-names exposed))))
     (is (= expected exposed))
-    (is (= 49 (count exposed)))))
+    (is (= 55 (count exposed)))))
 
 (deftest no-duplicate-names
   (let [names (map :name tools/all)]
     (is (= (count names) (count (set names))) "tool names are unique")))
 
 (deftest client-tools-count
-  (is (= 26 (count client/client-tools))))
+  (is (= 31 (count client/client-tools))))
 
 (deftest save-cohort-exposed
   (is (some #(= "save_cohort" (:name %)) tools/all))

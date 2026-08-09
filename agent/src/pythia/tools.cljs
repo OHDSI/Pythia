@@ -18,6 +18,7 @@
             [pythia.tools.search-ohdsi-studies :as search-ohdsi-studies]
             [pythia.tools.web-search :as web-search]
             [pythia.tools.search-phenotypes :as search-phenotypes]
+            [pythia.tools.phenotype-patterns :as phenotype-patterns]
             [pythia.tools.get-reference-phenotype :as get-reference-phenotype]
             [pythia.tools.validate-circe :as validate-circe]
             [pythia.tools.search-ohdsi-book :as search-ohdsi-book]
@@ -45,6 +46,7 @@
    search-ohdsi-studies/tool
    web-search/tool
    search-phenotypes/tool
+   phenotype-patterns/tool
    get-reference-phenotype/tool
    validate-circe/tool
    search-ohdsi-book/tool
