@@ -112,8 +112,12 @@ the cohort definition. That is the default and it is what most phenotypes want:
 the set travels with the cohort, and nothing extra appears in the user's global
 concept-set library.
 
-**Reuse before you build, either way.** Call `search_existing_concept_sets`
-before assembling a set concept by concept. If the user already curated one that
+**Reuse before you build a named clinical group.** When the criterion is a
+multi-concept grouping with a name — "Statins", "Type 2 diabetes diagnoses",
+"Confirmatory T2DM treatment" — call `search_existing_concept_sets` first.
+Skip that check for a single named concept (one ingredient, one diagnosis): the
+criterion tools embed it directly, and searching the library first just delays
+the proposal the user asked for. If the user already curated one that
 fits — "Statins", "Type 2 diabetes diagnoses" — use it with
 `use_concept_set(conceptSetId, group)` instead of rebuilding it: their set is
 the definition they trust, it carries their inclusions and exclusions, and a

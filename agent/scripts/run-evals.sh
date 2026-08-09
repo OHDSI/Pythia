@@ -28,26 +28,37 @@ set -a
 [ -f ../../.env ] && . ../../.env
 set +a
 
-URL="${PYTHIA_EVAL_URL:-https://localhost/WebAPI/trex/pythia}"
+# Route selection. The canonical /WebAPI proxy route is only used when it is
+# explicitly requested, because a passing health check does NOT mean it can run
+# an eval: on the currently pinned trexsql image GET /eve/v1/health returns 200
+# while the streaming turn dies inside the proxy servlet (ring response copy
+# throws, visible in `docker compose logs trex`). Selecting it on the strength
+# of the health probe made every eval sit until its timeout with no output and
+# no error — half an hour to learn nothing. The sidecar talks to the agent
+# mount directly and runs the same suite in seconds, so it is the default.
+#
+# Set PYTHIA_EVAL_URL to force a specific route (e.g. the canonical one, to
+# check whether a newer trexsql image has fixed the streaming path).
+URL="${PYTHIA_EVAL_URL:-}"
 
-if curl -skf --max-time 10 "$URL/eve/v1/health" >/dev/null 2>&1; then
+if [ -n "$URL" ]; then
+  if ! curl -skf --max-time 10 "$URL/eve/v1/health" >/dev/null 2>&1; then
+    echo "PYTHIA_EVAL_URL=$URL is not reachable at /eve/v1/health" >&2
+    exit 1
+  fi
   # Caddy's dev TLS cert is self-signed (tls internal).
   cd "$EVAL_ROOT"
   NODE_TLS_REJECT_UNAUTHORIZED=0 exec npx eve eval --strict --junit .eve/junit.xml --url "$URL" "$@"
 fi
 
-# Canonical route unhealthy: known trex agent-proxy bug where bodyless GETs
-# (/eve/v1/health, /eve/v1/info) 500 through the bao proxy in the currently
-# pinned trexsql image. Fixed upstream on trex@fix/agent-proxy-get-body but
-# not yet in a released image. Fall back to a local sidecar that talks to
-# the agent mount directly and injects the apikey header eve can't send.
-echo "notice: $URL/eve/v1/health unreachable — proxy route unhealthy, falling back to local auth-injecting sidecar (trex agent-proxy GET bug; fixed in trex@fix/agent-proxy-get-body)" >&2
+# Default: local sidecar onto the agent mount, injecting the apikey header eve
+# cannot send itself.
 
 KEY="$(cd ../.. && docker compose exec -T postgres psql -U postgres -d testdb -t -A \
   -c "SELECT value #>> '{}' FROM trexdb.setting WHERE key='auth.serviceRoleKey'" 2>/dev/null | tr -d '[:space:]' || true)"
 
 if [ -z "$KEY" ]; then
-  echo "pythia agent not reachable at $URL/eve/v1/health" >&2
+  echo "pythia agent not reachable via the local sidecar" >&2
   echo "is the stack up? -> docker compose up -d (from the repo root)" >&2
   echo "fallback also failed: could not extract auth.serviceRoleKey via docker compose exec postgres psql" >&2
   exit 1
@@ -55,8 +66,7 @@ fi
 
 DIRECT_URL="http://localhost:8001/plugins/ohdsi/pythia"
 if ! curl -sf --max-time 10 -H "apikey: $KEY" "$DIRECT_URL/eve/v1/health" >/dev/null 2>&1; then
-  echo "pythia agent not reachable at $URL/eve/v1/health" >&2
-  echo "fallback also failed: direct mount $DIRECT_URL/eve/v1/health unhealthy even with apikey" >&2
+  echo "direct mount $DIRECT_URL/eve/v1/health is unhealthy even with apikey" >&2
   exit 1
 fi
 

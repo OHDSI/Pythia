@@ -12,9 +12,14 @@ export default defineEval({
     // encoded all three criteria as "at least 1", so the cohort REQUIRED a GI
     // bleed. It built, generated and read back fine — the definition simply
     // answered the opposite question.
+    // Asked directly, the way inclusion-rule-proposal does: a turn ends at its
+    // FIRST pending clientOnly proposal, so a from-scratch cohort flow stops at
+    // set_entry_event and never reaches the exclusion. Requesting the exclusion
+    // itself is the only way this harness can observe how it was encoded.
     const turn = await t.send(
-      "Build a cohort of adults starting ibuprofen, excluding anyone with a previous " +
-        "gastrointestinal bleed. Propose the exclusion.",
+      "Add an exclusion to the cohort I am building: drop anyone with a prior " +
+        "gastrointestinal hemorrhage before the index date. Propose it now — no plan, " +
+        "and do not ask me anything else.",
     );
     t.succeeded();
 
