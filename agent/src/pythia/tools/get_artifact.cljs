@@ -32,6 +32,17 @@
       (nil? id)
       (js/Promise.resolve {:error "id is required"})
 
+      ;; Saved artifacts are identified by a numeric id. Asked about the cohort
+      ;; being built, the model reached for id "draft", which WebAPI rejected
+      ;; with a 400 it could not act on. Say what is actually true: the thing on
+      ;; screen has no id until it is saved.
+      (not (re-matches #"\d+" (str/trim (str id))))
+      (js/Promise.resolve
+       {:error (str "id must be a saved artifact's numeric id; got " (pr-str id) ". "
+                    "A cohort being built in the editor has no id until save_cohort "
+                    "is accepted — read it with review_artifact after saving, or ask "
+                    "the user about what is on screen.")})
+
       :else
       (-> (webapi/request-status "GET" (path-fn id) {:auth auth})
           (.then (fn [{:keys [status body]}]

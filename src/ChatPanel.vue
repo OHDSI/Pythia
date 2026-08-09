@@ -47,6 +47,7 @@ import CharacterizationProposalCard from './CharacterizationProposalCard.vue'
 import PathwayProposalCard from './PathwayProposalCard.vue'
 import IncidenceRateProposalCard from './IncidenceRateProposalCard.vue'
 import UpdateProposalCard from './UpdateProposalCard.vue'
+import CohortSettingProposalCard from './CohortSettingProposalCard.vue'
 import GenerateAnalysisProposalCard from './GenerateAnalysisProposalCard.vue'
 import SaveCohortProposalCard from './SaveCohortProposalCard.vue'
 import ProposalGroupCard from './ProposalGroupCard.vue'
@@ -428,6 +429,16 @@ function cardComponentFor(toolName: string) {
     case 'update_characterization':
     case 'update_pathway':
     case 'update_incidence_rate': return UpdateProposalCard
+    // The parts of a cohort that carry no concept. Without these they fell
+    // through to CriterionProposalCard and rendered "Unnamed concept", which is
+    // not something a user can approve meaningfully.
+    case 'add_demographic_criterion':
+    case 'set_event_limits':
+    case 'set_censor_window':
+    case 'set_era_collapse':
+    case 'use_concept_set':
+    case 'remove_inclusion_rule':
+    case 'remove_entry_event': return CohortSettingProposalCard
     default: return CriterionProposalCard
   }
 }

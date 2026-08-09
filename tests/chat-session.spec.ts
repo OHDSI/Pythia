@@ -5,6 +5,7 @@ import {
   buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
   acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
   proposalKind,
+  CLIENT_SIDE_TOOLS,
 } from '../src/chat-session'
 import { applyCreatePlan, activePlan, resetPlans } from '../src/plan-state'
 import type { Plan } from '../src/types'
@@ -41,6 +42,14 @@ describe('proposalKind (fidelity with ATLAS translateCapability)', () => {
       ['update_characterization', { id: 1 }, 'updateCharacterization'],
       ['update_pathway', { id: 1 }, 'updatePathway'],
       ['update_incidence_rate', { id: 1 }, 'updateIncidenceRate'],
+      ['add_demographic_criterion', { minAge: 18 }, 'addInclusionRule'],
+      ['add_qualifying_criterion', { conceptId: 1, conceptName: 'x' }, 'addQualifyingCriterion'],
+      ['set_event_limits', { entryEvents: 'first' }, 'setEventLimits'],
+      ['set_censor_window', { startDate: '2015-01-01' }, 'setCensorWindow'],
+      ['set_era_collapse', { gapDays: 30 }, 'setEraCollapse'],
+      ['use_concept_set', { conceptSetId: 7 }, 'useConceptSet'],
+      ['remove_inclusion_rule', { name: 'x' }, 'removeInclusionRule'],
+      ['remove_entry_event', { conceptId: 1 }, 'removeEntryEvent'],
       ['not_a_real_tool', {}, null],
     ]
     for (const [name, args, expected] of cases) {
@@ -765,5 +774,28 @@ describe('resolved proposals stay in the transcript', () => {
     resolveProposal('tc-keep2', 'rejected', { addToolResult })
     expect(proposals.value['tc-keep2']).toBeDefined()
     expect(proposals.value['tc-keep2'].status).toBe('rejected')
+  })
+})
+
+// A capability the panel does not know is client-side gets no proposal card, so
+// its tool call is never resolved — the next message then dies with
+// AI_MissingToolResultsError and the session is unrecoverable. That is how a
+// whole recording was lost, so assert the two lists agree.
+describe('every proposal capability is registered as client-side', () => {
+  it('CLIENT_SIDE_TOOLS covers every tool proposalKind can map', () => {
+    const mappable = [
+      'add_criterion', 'add_criteria', 'set_entry_event', 'set_observation_window',
+      'add_exit_criterion', 'set_censor_event', 'add_inclusion_rule', 'save_cohort',
+      'create_standalone_concept_set', 'create_feature_analysis', 'create_characterization',
+      'create_pathway', 'create_incidence_rate', 'update_concept_set',
+      'update_feature_analysis', 'update_characterization', 'update_pathway',
+      'update_incidence_rate', 'generate_analysis', 'add_demographic_criterion',
+      'add_qualifying_criterion', 'set_event_limits', 'set_censor_window',
+      'set_era_collapse', 'use_concept_set', 'remove_inclusion_rule', 'remove_entry_event',
+    ]
+    for (const name of mappable) {
+      expect(proposalKind(name, {}), `${name} has no kind`).toBeTruthy()
+      expect(CLIENT_SIDE_TOOLS.has(name), `${name} is not in CLIENT_SIDE_TOOLS`).toBe(true)
+    }
   })
 })

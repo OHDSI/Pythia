@@ -171,6 +171,18 @@ export const CLIENT_SIDE_TOOLS = new Set([
   'update_incidence_rate',
   // Runs a saved analysis (the Generate button). Proposal-gated like the rest.
   'generate_analysis',
+  // The rest of the cohort model. A capability missing from this set produces
+  // no proposal card, so its tool call is never resolved — the next message
+  // then fails with AI_MissingToolResultsError and the session is dead. Keep
+  // this in lockstep with ATLAS's capability registry.
+  'add_demographic_criterion',
+  'set_event_limits',
+  'add_qualifying_criterion',
+  'set_censor_window',
+  'set_era_collapse',
+  'use_concept_set',
+  'remove_inclusion_rule',
+  'remove_entry_event',
 ])
 
 // Discriminates the `AgentProposal.kind` a client-side tool call would
@@ -212,6 +224,22 @@ export function proposalKind(name: string, args: Record<string, unknown>): strin
       return 'createPathway'
     case 'create_incidence_rate':
       return 'createIncidenceRate'
+    case 'add_demographic_criterion':
+    case 'add_qualifying_criterion':
+      // Both land as a rule/group on the cohort, not an entry event.
+      return name === 'add_qualifying_criterion' ? 'addQualifyingCriterion' : 'addInclusionRule'
+    case 'set_event_limits':
+      return 'setEventLimits'
+    case 'set_censor_window':
+      return 'setCensorWindow'
+    case 'set_era_collapse':
+      return 'setEraCollapse'
+    case 'use_concept_set':
+      return 'useConceptSet'
+    case 'remove_inclusion_rule':
+      return 'removeInclusionRule'
+    case 'remove_entry_event':
+      return 'removeEntryEvent'
     case 'update_concept_set':
       return 'updateConceptSet'
     case 'update_feature_analysis':
