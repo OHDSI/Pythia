@@ -13,43 +13,7 @@ what you accept reaches the cohort editor.
 Two things it will not do. It will not put a concept in your cohort unless that
 concept came back from a search against your own data source, so it cannot
 quietly invent a code that does not exist there. And it will not tell you what
-an analysis shows without reading the generated result first.
-
-## See it work
-
-Both are real runs against the OHDSI Eunomia demo database, shortened by cutting
-the waiting: nothing is staged or re-ordered, but pauses while the assistant
-thinks or a cohort generates have been trimmed. Click a picture to download the
-video.
-
-### Designing a phenotype
-
-<a href="https://github.com/OHDSI/Pythia/releases/download/v0.1.0/pythia-cohort.mp4">
-  <img src="figures/phenotype-poster.png" alt="Pythia builds a phenotype in ATLAS" width="860">
-</a>
-
-**2:30.** The request: adults aged 40 and over with osteoarthritis starting
-ibuprofen, counting each person once at their first exposure, requiring a year
-of prior data, and excluding anyone with an earlier gastrointestinal bleed or
-peptic ulcer.
-
-Pythia offers each criterion for approval, one is rejected and it adapts, then
-it saves the cohort and generates it: 341 people out of the 1,440 who started
-ibuprofen. It then reads the attrition back and says where the people went. The
-osteoarthritis requirement removes almost nobody (everyone in this small demo
-database has it), the bleed exclusion removes 15.6%, and the age restriction
-removes 53.3%.
-
-### Building and running an analysis
-
-<a href="https://github.com/OHDSI/Pythia/releases/download/v0.1.0/pythia-pathways.mp4">
-  <img src="figures/demo-poster.png" alt="Pythia builds and runs a pathway analysis" width="860">
-</a>
-
-**3:10.** A treatment pathway analysis from scratch: three cohorts built and
-saved, the analysis assembled from them, run against the data, and the result
-read back. Of 2,689 patients with sinusitis, 2,040 (75.9%) had a recorded
-antibiotic pathway, and amoxicillin on its own accounted for 70% of them.
+an analysis shows without reading the generated result first. 
 
 ## Two ways to run it
 
