@@ -8,6 +8,10 @@ import {
   CLIENT_SIDE_TOOLS,
 } from '../src/chat-session'
 import { applyCreatePlan, activePlan, resetPlans } from '../src/plan-state'
+import {
+  callBrowserTool,
+  listBrowserTools,
+} from '../src/browser-tool-registry'
 import type { Plan } from '../src/types'
 import type { UIMessage } from 'ai'
 
@@ -15,6 +19,31 @@ const fakeBus = () => ({
   send: vi.fn(),
   request: vi.fn(),
   subscribe: vi.fn(),
+})
+
+describe('dynamic browser tool registry', () => {
+  afterEach(() => {
+    delete window.__d2eClientTools
+  })
+
+  it('discovers and calls a live tool, then reports an unavailable registry', async () => {
+    const descriptor = {
+      name: 'pa_get_current_cohort',
+      description: 'Return the cohort currently open in Data Exploration.',
+      inputSchema: { type: 'object', properties: {} },
+    }
+    const call = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: '{}' }] })
+    window.__d2eClientTools = { version: 1, list: () => [descriptor], call }
+
+    expect(listBrowserTools()).toEqual([descriptor])
+    await expect(callBrowserTool(descriptor.name, undefined)).resolves.toEqual({
+      content: [{ type: 'text', text: '{}' }],
+    })
+    expect(call).toHaveBeenCalledWith(descriptor.name, {})
+
+    delete window.__d2eClientTools
+    await expect(callBrowserTool(descriptor.name, {})).rejects.toThrow('unavailable')
+  })
 })
 
 describe('proposalKind (fidelity with ATLAS translateCapability)', () => {
@@ -437,6 +466,16 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
     }
     const body = buildAgentRequestBody(null, null, plan)
     expect(body.metadata?.plan?.steps[0].required).toBe(false)
+  })
+
+  it('includes browser tool descriptors in request metadata', () => {
+    const tools = [{
+      name: 'pa_get_current_cohort',
+      description: 'Return the current PA cohort.',
+      inputSchema: { type: 'object', properties: {} },
+    }]
+    const body = buildAgentRequestBody(null, null, null, tools)
+    expect(body.metadata?.clientTools).toEqual({ version: 1, tools })
   })
 })
 

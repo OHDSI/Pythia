@@ -26,6 +26,11 @@ import {
   snapshotPlans,
 } from './plan-state'
 import type { GatedPlanPayload } from './plan-state'
+import {
+  callBrowserTool,
+  listBrowserTools,
+  type BrowserToolDescriptor,
+} from './browser-tool-registry'
 
 let _hostBus: MessageBus | null = null
 let hostApplyProposal: ((p: unknown) => void) | null = null
@@ -765,6 +770,7 @@ export interface AgentRequestMetadata {
   sourceKey: string | null
   context: { route: string; artifact: { kind: string; id: number | string; name: string } | null } | null
   plan: AgentPlanPayload | null
+  clientTools?: { version: 1; tools: BrowserToolDescriptor[] }
 }
 
 export interface AgentRequestBody {
@@ -785,9 +791,10 @@ export interface AgentRequestBody {
 export function buildAgentRequestBody(
   sourceKey: string | null,
   routeContext: RouteContext | null,
-  plan: Plan | null
+  plan: Plan | null,
+  clientTools: BrowserToolDescriptor[] = listBrowserTools(),
 ): AgentRequestBody {
-  if (sourceKey == null && routeContext == null && plan == null) {
+  if (sourceKey == null && routeContext == null && plan == null && clientTools.length === 0) {
     return {}
   }
   return {
@@ -816,6 +823,9 @@ export function buildAgentRequestBody(
             })),
           }
         : null,
+      ...(clientTools.length > 0
+        ? { clientTools: { version: 1 as const, tools: clientTools } }
+        : {}),
     },
   }
 }
@@ -1013,7 +1023,24 @@ export function getChatInstance(): Chat<UIMessage> {
         // in ChatPanel calls resolveProposal, which sends the real outcome
         // as the tool-result. If auto-approve is on, recordAndMaybeAutoAccept
         // also resolves it immediately as accepted.
+        return
       }
+      // All built-in client tools returned above; any remaining clientOnly call
+      // came from the browser registry advertised with this request.
+      void callBrowserTool(toolCall.toolName, toolCall.input)
+        .then(output => chat.addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output,
+        }))
+        .catch(error => chat.addToolResult({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        }))
     },
   })
 
