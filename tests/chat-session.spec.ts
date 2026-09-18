@@ -23,7 +23,7 @@ const fakeBus = () => ({
 
 describe('dynamic browser tool registry', () => {
   afterEach(() => {
-    delete window.__d2eClientTools
+    delete window.__pythiaClientTools
   })
 
   it('discovers and calls a live tool, then reports an unavailable registry', async () => {
@@ -33,7 +33,7 @@ describe('dynamic browser tool registry', () => {
       inputSchema: { type: 'object', properties: {} },
     }
     const call = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: '{}' }] })
-    window.__d2eClientTools = { version: 1, list: () => [descriptor], call }
+    window.__pythiaClientTools = { version: 1, list: () => [descriptor], call }
 
     expect(listBrowserTools()).toEqual([descriptor])
     await expect(callBrowserTool(descriptor.name, undefined)).resolves.toEqual({
@@ -41,7 +41,7 @@ describe('dynamic browser tool registry', () => {
     })
     expect(call).toHaveBeenCalledWith(descriptor.name, {})
 
-    delete window.__d2eClientTools
+    delete window.__pythiaClientTools
     await expect(callBrowserTool(descriptor.name, {})).rejects.toThrow('unavailable')
   })
 })

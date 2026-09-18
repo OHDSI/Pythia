@@ -72,7 +72,7 @@ and commit the result whenever `src/pythia/**` or `resources/**` change.
 
 ### Dynamic browser tools
 Host pages may additionally publish runtime-only tools through
-`window.__d2eClientTools`. The frontend snapshots those descriptors into the
+`window.__pythiaClientTools`. The frontend snapshots those descriptors into the
 request's `metadata.clientTools`; `dynamic-tools.ts` advertises the validated
 schemas as `clientOnly`, and a selected call is streamed back to the frontend
 for execution against the live browser registry. Dynamic browser tools are

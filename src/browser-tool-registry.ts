@@ -3,7 +3,7 @@
  *
  * These are not Pythia's compiled-in clientOnly proposal tools. The host page
  * publishes whichever browser tools are currently mounted through
- * `window.__d2eClientTools`; Pythia reads them for each model request and
+ * `window.__pythiaClientTools`; Pythia reads them for each model request and
  * resolves selected calls against the live registry.
  */
 export interface BrowserToolDescriptor {
@@ -25,12 +25,12 @@ export interface BrowserToolRegistry {
 
 declare global {
   interface Window {
-    __d2eClientTools?: BrowserToolRegistry
+    __pythiaClientTools?: BrowserToolRegistry
   }
 }
 
 function registry(): BrowserToolRegistry | undefined {
-  const value = typeof window === 'undefined' ? undefined : window.__d2eClientTools
+  const value = typeof window === 'undefined' ? undefined : window.__pythiaClientTools
   return value?.version === 1 ? value : undefined
 }
 
