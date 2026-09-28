@@ -6,6 +6,7 @@ import {
   acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
   proposalKind,
   CLIENT_SIDE_TOOLS,
+  snapshotBrowserTools, dispatchBrowserToolCall,
 } from '../src/chat-session'
 import { applyCreatePlan, activePlan, resetPlans } from '../src/plan-state'
 import {
@@ -43,6 +44,149 @@ describe('dynamic browser tool registry', () => {
 
     delete window.__pythiaClientTools
     await expect(callBrowserTool(descriptor.name, {})).rejects.toThrow('unavailable')
+  })
+
+  const tool = (name: string, extra: Record<string, unknown> = {}) => ({
+    name,
+    description: `Tool ${name}`,
+    inputSchema: { type: 'object', properties: {} },
+    ...extra,
+  })
+
+  it('returns no tools when list() throws or returns a non-array', () => {
+    const call = vi.fn()
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => { throw new Error('host not mounted') },
+      call,
+    }
+    expect(listBrowserTools()).toEqual([])
+    expect(buildAgentRequestBody(null, null, null, listBrowserTools())).toEqual({})
+
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => null as unknown as ReturnType<typeof listBrowserTools>,
+      call,
+    }
+    expect(listBrowserTools()).toEqual([])
+  })
+
+  it('drops malformed, reserved and duplicate descriptors and caps the count', () => {
+    const raw = [
+      tool('pa_ok'),
+      tool('pa_ok', { description: 'duplicate' }),
+      tool('Bad-Name'),
+      tool('pa_no_schema', { inputSchema: null }),
+      tool('pa_empty_description', { description: '' }),
+      null,
+      tool('navigate_to'),
+      tool('search_concepts'),
+      tool('skill'),
+      ...Array.from({ length: 40 }, (_, i) => tool(`pa_extra_${i}`)),
+    ]
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => raw as ReturnType<typeof listBrowserTools>,
+      call: vi.fn(),
+    }
+    const names = listBrowserTools().map(t => t.name)
+    expect(names).toHaveLength(32)
+    expect(names[0]).toBe('pa_ok')
+    expect(names.filter(n => n === 'pa_ok')).toHaveLength(1)
+    for (const dropped of ['Bad-Name', 'pa_no_schema', 'pa_empty_description', 'navigate_to', 'search_concepts', 'skill']) {
+      expect(names).not.toContain(dropped)
+    }
+  })
+
+  it('rejects a call result without a content array', async () => {
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => [tool('pa_ok')],
+      call: vi.fn().mockResolvedValue({ nope: true }),
+    }
+    await expect(callBrowserTool('pa_ok', {})).rejects.toThrow('invalid result')
+  })
+})
+
+describe('dispatchBrowserToolCall (only advertised browser tools reach the host)', () => {
+  afterEach(() => {
+    delete window.__pythiaClientTools
+    snapshotBrowserTools()
+  })
+
+  it('ignores a server tool call when no registry is present', async () => {
+    snapshotBrowserTools()
+    const addToolResult = vi.fn()
+    const handled = dispatchBrowserToolCall(
+      { toolCallId: 'c1', toolName: 'search_concepts', input: { query: 'x' } },
+      { addToolResult },
+    )
+    await new Promise(r => setTimeout(r, 0))
+    expect(handled).toBe(false)
+    expect(addToolResult).not.toHaveBeenCalled()
+  })
+
+  it('never passes a server tool call to the host registry', async () => {
+    const call = vi.fn().mockResolvedValue({ content: [] })
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => [{ name: 'pa_get_current_cohort', description: 'd', inputSchema: {} }],
+      call,
+    }
+    snapshotBrowserTools()
+    const addToolResult = vi.fn()
+    const handled = dispatchBrowserToolCall(
+      { toolCallId: 'c1', toolName: 'get_artifact', input: {} },
+      { addToolResult },
+    )
+    await new Promise(r => setTimeout(r, 0))
+    expect(handled).toBe(false)
+    expect(call).not.toHaveBeenCalled()
+    expect(addToolResult).not.toHaveBeenCalled()
+  })
+
+  it('dispatches an advertised browser tool and records its result', async () => {
+    const output = { content: [{ type: 'text', text: '{"id":1}' }] }
+    const call = vi.fn().mockResolvedValue(output)
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => [{ name: 'pa_get_current_cohort', description: 'd', inputSchema: {} }],
+      call,
+    }
+    snapshotBrowserTools()
+    const addToolResult = vi.fn()
+    const handled = dispatchBrowserToolCall(
+      { toolCallId: 'c2', toolName: 'pa_get_current_cohort', input: { a: 1 } },
+      { addToolResult },
+    )
+    await vi.waitFor(() => expect(addToolResult).toHaveBeenCalled())
+    expect(handled).toBe(true)
+    expect(call).toHaveBeenCalledWith('pa_get_current_cohort', { a: 1 })
+    expect(addToolResult).toHaveBeenCalledWith({
+      tool: 'pa_get_current_cohort',
+      toolCallId: 'c2',
+      output,
+    })
+  })
+
+  it('reports an error result when an advertised tool has since unmounted', async () => {
+    window.__pythiaClientTools = {
+      version: 1,
+      list: () => [{ name: 'pa_get_current_cohort', description: 'd', inputSchema: {} }],
+      call: vi.fn(),
+    }
+    snapshotBrowserTools()
+    delete window.__pythiaClientTools
+    const addToolResult = vi.fn()
+    dispatchBrowserToolCall(
+      { toolCallId: 'c3', toolName: 'pa_get_current_cohort', input: {} },
+      { addToolResult },
+    )
+    await vi.waitFor(() => expect(addToolResult).toHaveBeenCalled())
+    expect(addToolResult.mock.calls[0][0].output).toEqual({
+      success: false,
+      error: 'Browser tools are unavailable.',
+    })
   })
 })
 

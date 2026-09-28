@@ -53,6 +53,44 @@ export interface NavigateHandlerDeps {
   addToolResult: (r: { tool: string; toolCallId: string; output: unknown }) => void
 }
 
+// Names of the host-page browser tools advertised with the most recent
+// request. onToolCall fires for EVERY tool call in the stream — server tools
+// included, since the backend never marks them providerExecuted — so only a
+// name in this set may be dispatched to the browser registry. Replaced (not
+// merged) on each send: a call answering an older request whose tool has
+// since unmounted still fails cleanly inside callBrowserTool.
+let advertisedBrowserTools = new Set<string>()
+
+export function snapshotBrowserTools(): BrowserToolDescriptor[] {
+  const tools = listBrowserTools()
+  advertisedBrowserTools = new Set(tools.map(t => t.name))
+  return tools
+}
+
+// Returns false (and does nothing) for a tool that was not advertised as a
+// browser tool, leaving server-tool calls to the stream's own result.
+export function dispatchBrowserToolCall(
+  toolCall: { toolCallId: string; toolName: string; input: unknown },
+  deps: NavigateHandlerDeps,
+): boolean {
+  if (!advertisedBrowserTools.has(toolCall.toolName)) return false
+  void callBrowserTool(toolCall.toolName, toolCall.input)
+    .then(output => deps.addToolResult({
+      tool: toolCall.toolName,
+      toolCallId: toolCall.toolCallId,
+      output,
+    }))
+    .catch(error => deps.addToolResult({
+      tool: toolCall.toolName,
+      toolCallId: toolCall.toolCallId,
+      output: {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    }))
+  return true
+}
+
 interface CapabilityApplyResult {
   applied: boolean
   kind?: string
@@ -792,7 +830,7 @@ export function buildAgentRequestBody(
   sourceKey: string | null,
   routeContext: RouteContext | null,
   plan: Plan | null,
-  clientTools: BrowserToolDescriptor[] = listBrowserTools(),
+  clientTools: BrowserToolDescriptor[] = [],
 ): AgentRequestBody {
   if (sourceKey == null && routeContext == null && plan == null && clientTools.length === 0) {
     return {}
@@ -859,7 +897,12 @@ export function getChatInstance(): Chat<UIMessage> {
       if (token) h['Authorization'] = `Bearer ${token}`
       return h
     },
-    body: () => buildAgentRequestBody(sessionSourceKey.value, sessionRouteContext.value, activePlan.value),
+    body: () => buildAgentRequestBody(
+      sessionSourceKey.value,
+      sessionRouteContext.value,
+      activePlan.value,
+      snapshotBrowserTools(),
+    ),
   })
 
   // Hard cap on the auto-loop. The @ai-sdk/vue Chat keeps ONE assistant
@@ -1025,22 +1068,10 @@ export function getChatInstance(): Chat<UIMessage> {
         // also resolves it immediately as accepted.
         return
       }
-      // All built-in client tools returned above; any remaining clientOnly call
-      // came from the browser registry advertised with this request.
-      void callBrowserTool(toolCall.toolName, toolCall.input)
-        .then(output => chat.addToolResult({
-          tool: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-          output,
-        }))
-        .catch(error => chat.addToolResult({
-          tool: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-          output: {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        }))
+      // Built-in client tools returned above. A remaining call is either a
+      // browser tool advertised with the request, or a server tool whose
+      // result arrives on the stream and must not be touched here.
+      dispatchBrowserToolCall(toolCall, { addToolResult: (r) => chat.addToolResult(r) })
     },
   })
 

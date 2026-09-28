@@ -71,17 +71,42 @@ const dynamicTools = await provider({
   metadata: {
     clientTools: {
       version: 1,
-      tools: [{
-        name: "pa_get_current_cohort",
-        description: "Get the current PA cohort",
-        inputSchema: { type: "object", properties: {} },
-      }],
+      tools: [
+        {
+          name: "pa_get_current_cohort",
+          description: "Get the current PA cohort",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "pa_get_current_cohort",
+          description: "Duplicate of the first descriptor",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "search_concepts",
+          description: "Collides with an authored server tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "skill",
+          description: "Collides with a trex built-in tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
     },
   },
 });
 if (provider.__trexToolProvider !== true) fail("dynamic-tools", "missing provider brand");
 if (dynamicTools.pa_get_current_cohort?.clientOnly !== true) {
   fail("dynamic-tools", "browser descriptor was not exposed as clientOnly");
+}
+if (dynamicTools.pa_get_current_cohort?.description !== "Get the current PA cohort") {
+  fail("dynamic-tools", "a duplicate descriptor replaced the first one");
+}
+for (const reserved of ["search_concepts", "skill"]) {
+  if (Object.hasOwn(dynamicTools, reserved)) {
+    fail("dynamic-tools", `reserved name "${reserved}" was exposed as a browser tool`);
+  }
 }
 
 if (failures > 0) {

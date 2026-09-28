@@ -1,4 +1,5 @@
 import { defineToolProvider } from "eve/tools";
+import { RESERVED_TOOL_NAMES } from "./reserved-tool-names.ts";
 
 /**
  * TREX's conventional per-request tool-provider entry point.
@@ -21,6 +22,10 @@ const MAX_NAME_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 2_000;
 const MAX_SCHEMA_LENGTH = 32_000;
 const TOOL_NAME = /^[a-z][a-z0-9_]*$/;
+// Authored tools already win a name collision in trex's toolset merge, but
+// the frontend would still execute the browser tool of the same name. Drop
+// such descriptors here so a collision is never advertised at all.
+const RESERVED = new Set(RESERVED_TOOL_NAMES);
 
 function plainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -39,6 +44,8 @@ function buildBrowserToolDefinitions(metadata: unknown): Record<string, BrowserT
       typeof name !== "string" ||
       name.length > MAX_NAME_LENGTH ||
       !TOOL_NAME.test(name) ||
+      RESERVED.has(name) ||
+      Object.hasOwn(result, name) ||
       typeof description !== "string" ||
       description.length === 0 ||
       description.length > MAX_DESCRIPTION_LENGTH ||
