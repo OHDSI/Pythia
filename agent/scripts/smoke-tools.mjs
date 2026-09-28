@@ -66,9 +66,52 @@ for (const file of files) {
   }
 }
 
+const provider = (await import(new URL("../plugin/agent/dynamic-tools.ts", import.meta.url).href)).default;
+const dynamicTools = await provider({
+  metadata: {
+    clientTools: {
+      version: 1,
+      tools: [
+        {
+          name: "pa_get_current_cohort",
+          description: "Get the current PA cohort",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "pa_get_current_cohort",
+          description: "Duplicate of the first descriptor",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "search_concepts",
+          description: "Collides with an authored server tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "skill",
+          description: "Collides with a trex built-in tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+    },
+  },
+});
+if (provider.__trexToolProvider !== true) fail("dynamic-tools", "missing provider brand");
+if (dynamicTools.pa_get_current_cohort?.clientOnly !== true) {
+  fail("dynamic-tools", "browser descriptor was not exposed as clientOnly");
+}
+if (dynamicTools.pa_get_current_cohort?.description !== "Get the current PA cohort") {
+  fail("dynamic-tools", "a duplicate descriptor replaced the first one");
+}
+for (const reserved of ["search_concepts", "skill"]) {
+  if (Object.hasOwn(dynamicTools, reserved)) {
+    fail("dynamic-tools", `reserved name "${reserved}" was exposed as a browser tool`);
+  }
+}
+
 if (failures > 0) {
   console.error(`smoke: ${failures} failure(s) across ${files.length} tools`);
   Deno.exit(1);
 }
 
-console.log(`smoke: ${files.length} tool wrappers OK (${Object.keys(SPOT_CHECK).length} spot-checked for clientOnly/execute)`);
+console.log(`smoke: ${files.length} tool wrappers and dynamic browser-tool provider OK`);

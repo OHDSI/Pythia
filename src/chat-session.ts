@@ -26,6 +26,11 @@ import {
   snapshotPlans,
 } from './plan-state'
 import type { GatedPlanPayload } from './plan-state'
+import {
+  callBrowserTool,
+  listBrowserTools,
+  type BrowserToolDescriptor,
+} from './browser-tool-registry'
 
 let _hostBus: MessageBus | null = null
 let hostApplyProposal: ((p: unknown) => void) | null = null
@@ -46,6 +51,44 @@ export const lastNavigation = ref<LastNavigation | null>(null)
 
 export interface NavigateHandlerDeps {
   addToolResult: (r: { tool: string; toolCallId: string; output: unknown }) => void
+}
+
+// Names of the host-page browser tools advertised with the most recent
+// request. onToolCall fires for EVERY tool call in the stream — server tools
+// included, since the backend never marks them providerExecuted — so only a
+// name in this set may be dispatched to the browser registry. Replaced (not
+// merged) on each send: a call answering an older request whose tool has
+// since unmounted still fails cleanly inside callBrowserTool.
+let advertisedBrowserTools = new Set<string>()
+
+export function snapshotBrowserTools(): BrowserToolDescriptor[] {
+  const tools = listBrowserTools()
+  advertisedBrowserTools = new Set(tools.map(t => t.name))
+  return tools
+}
+
+// Returns false (and does nothing) for a tool that was not advertised as a
+// browser tool, leaving server-tool calls to the stream's own result.
+export function dispatchBrowserToolCall(
+  toolCall: { toolCallId: string; toolName: string; input: unknown },
+  deps: NavigateHandlerDeps,
+): boolean {
+  if (!advertisedBrowserTools.has(toolCall.toolName)) return false
+  void callBrowserTool(toolCall.toolName, toolCall.input)
+    .then(output => deps.addToolResult({
+      tool: toolCall.toolName,
+      toolCallId: toolCall.toolCallId,
+      output,
+    }))
+    .catch(error => deps.addToolResult({
+      tool: toolCall.toolName,
+      toolCallId: toolCall.toolCallId,
+      output: {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    }))
+  return true
 }
 
 interface CapabilityApplyResult {
@@ -765,6 +808,7 @@ export interface AgentRequestMetadata {
   sourceKey: string | null
   context: { route: string; artifact: { kind: string; id: number | string; name: string } | null } | null
   plan: AgentPlanPayload | null
+  clientTools?: { version: 1; tools: BrowserToolDescriptor[] }
 }
 
 export interface AgentRequestBody {
@@ -785,9 +829,10 @@ export interface AgentRequestBody {
 export function buildAgentRequestBody(
   sourceKey: string | null,
   routeContext: RouteContext | null,
-  plan: Plan | null
+  plan: Plan | null,
+  clientTools: BrowserToolDescriptor[] = [],
 ): AgentRequestBody {
-  if (sourceKey == null && routeContext == null && plan == null) {
+  if (sourceKey == null && routeContext == null && plan == null && clientTools.length === 0) {
     return {}
   }
   return {
@@ -816,6 +861,9 @@ export function buildAgentRequestBody(
             })),
           }
         : null,
+      ...(clientTools.length > 0
+        ? { clientTools: { version: 1 as const, tools: clientTools } }
+        : {}),
     },
   }
 }
@@ -849,7 +897,12 @@ export function getChatInstance(): Chat<UIMessage> {
       if (token) h['Authorization'] = `Bearer ${token}`
       return h
     },
-    body: () => buildAgentRequestBody(sessionSourceKey.value, sessionRouteContext.value, activePlan.value),
+    body: () => buildAgentRequestBody(
+      sessionSourceKey.value,
+      sessionRouteContext.value,
+      activePlan.value,
+      snapshotBrowserTools(),
+    ),
   })
 
   // Hard cap on the auto-loop. The @ai-sdk/vue Chat keeps ONE assistant
@@ -1013,7 +1066,12 @@ export function getChatInstance(): Chat<UIMessage> {
         // in ChatPanel calls resolveProposal, which sends the real outcome
         // as the tool-result. If auto-approve is on, recordAndMaybeAutoAccept
         // also resolves it immediately as accepted.
+        return
       }
+      // Built-in client tools returned above. A remaining call is either a
+      // browser tool advertised with the request, or a server tool whose
+      // result arrives on the stream and must not be touched here.
+      dispatchBrowserToolCall(toolCall, { addToolResult: (r) => chat.addToolResult(r) })
     },
   })
 

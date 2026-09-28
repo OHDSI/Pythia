@@ -51,6 +51,12 @@ agent/
       instructions.md     GENERATED, committed (by gen-instructions.mjs)
       agent.edn           {:max-steps 20}, no :model (falls back to
                            TREX_AGENTS_DEFAULT_MODEL, or the resolver's per-provider pick)
+      dynamic-tools.ts    TREX dynamic-provider entry point; turns the current
+                           request's untrusted browser-tool descriptors into
+                           validated, bounded clientOnly tools
+      reserved-tool-names.ts
+                           GENERATED, committed (by gen-wrappers.mjs) — authored
+                           + trex built-in tool names a browser tool may not use
       tools/
         <name>.js         GENERATED, committed (by gen-wrappers.mjs) — one default
                           export per tool, re-exporting from _build/tools.js
@@ -66,6 +72,20 @@ agent/
 Generated artifacts under `plugin/agent/` (`instructions.md`, `tools/*.js`,
 `tools/_build/tools.js`, `resources/`) are **committed** — run `npm run dist`
 and commit the result whenever `src/pythia/**` or `resources/**` change.
+
+### Dynamic browser tools
+Host pages may additionally publish runtime-only tools through
+`window.__pythiaClientTools`. The frontend snapshots those descriptors into the
+request's `metadata.clientTools`; `dynamic-tools.ts` advertises the validated
+schemas as `clientOnly`, and a selected call is streamed back to the frontend
+for execution against the live browser registry. Dynamic browser tools are
+therefore available only while their providing page is mounted.
+
+A browser tool may not reuse the name of an authored or trex built-in tool
+(`reserved-tool-names.ts`); both `dynamic-tools.ts` and the frontend drop such
+descriptors. The frontend dispatches a tool call to the browser registry only
+when that name was advertised with the request — every other call is a server
+tool whose result arrives on the stream.
 
 The shadow `:fn` build target (`:target :esm`, module `:tools`) emits **bare**
 `import * from "eve/tools"` (via `:js-provider :import` + `:keep-as-import`).
