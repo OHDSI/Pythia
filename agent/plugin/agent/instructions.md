@@ -714,6 +714,7 @@ Available views (auto-generated from the Atlas3 route manifest):
 - `profiles-source` — params: sourceKey — Profiles (source)
 - `profile-view` — params: sourceKey, personId — Patient profile
 - `profile-view-cohort` — params: sourceKey, personId, cohortId — Patient profile (cohort)
+- `api-keys` — API keys
 - `feature-analyses` — Feature analyses
 - `characterizations` — Characterizations
 - `pathways` — Pathways
