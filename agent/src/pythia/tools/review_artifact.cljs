@@ -36,7 +36,9 @@
   (let [occ (:Occurrence criterion)
         t (:Type occ)
         c (:Count occ)]
-    ;; Absent Occurrence means circe's default: at least one.
+    ;; Absent Occurrence is how the editor displays "at least one", so count it
+    ;; as required here; criteria-renderable flags it, since circe-be cannot
+    ;; render a criterion without one.
     (or (nil? occ) (and (= 2 t) (pos? (or c 0))) (and (= 1 t) (pos? (or c 0))))))
 
 (defn- excludes-event? [criterion]
@@ -84,6 +86,25 @@
         (str "CodesetId " cid " (\"" (some #(when (= cid (:id %)) (:name %)) (:ConceptSets body))
              "\") is referenced but has no concepts")))))
 
+(defn- unrenderable-criteria
+  "Correlated criteria (maps carrying :Criteria) without :Occurrence or
+   :StartWindow. circe-be dereferences both unconditionally, so generation and
+   the live preview fail with a NullPointerException."
+  [body]
+  (let [found (atom [])]
+    (letfn [(walk [x path]
+              (cond
+                (map? x) (do (when (contains? x :Criteria)
+                               (doseq [k [:Occurrence :StartWindow]
+                                       :when (nil? (get x k))]
+                                 (swap! found conj (str path " has no " (name k)))))
+                             (doseq [[k v] x] (walk v (str path "." (name k)))))
+                (sequential? x) (doseq [[i v] (map-indexed vector x)]
+                                  (walk v (str path "[" i "]")))
+                :else nil))]
+      (walk body "expression"))
+    @found))
+
 (defn- cohort-checks [body]
   (let [criteria (get-in body [:PrimaryCriteria :CriteriaList])
         concept-sets (:ConceptSets body)
@@ -99,6 +120,7 @@
     (let [dirs (rule-directions inclusion-rules)
           inverted (inverted-exclusions dirs)
           codeset-issues (codeset-problems body)
+          unrenderable (unrenderable-criteria body)
           mixed (filter #(and (pos? (:required %)) (pos? (:excluded %))) dirs)]
       [(check "entry-event-present" (seq criteria) "PrimaryCriteria.CriteriaList (entry event)")
        (check "observation-window-set" (some? obs-window) "PrimaryCriteria.ObservationWindow")
@@ -137,7 +159,14 @@
        (check "all-codesets-resolvable" (empty? codeset-issues)
               (if (seq codeset-issues)
                 (str/join "; " codeset-issues)
-                "every referenced concept set exists and has concepts"))])))
+                "every referenced concept set exists and has concepts"))
+       (check "criteria-renderable" (empty? unrenderable)
+              (if (seq unrenderable)
+                (str (str/join "; " unrenderable)
+                     " — WebAPI cannot generate or preview this cohort. Re-proposing the rule "
+                     "does not fix it; ask the user to change that criterion's occurrence count "
+                     "in the cohort editor (e.g. to 2 and back to 1) and save.")
+                "every criterion has an Occurrence and a StartWindow"))])))
 
 (defn- concept-set-checks [body]
   (let [items (:items body)]

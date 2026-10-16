@@ -48,6 +48,28 @@
               cl (and (map? pc) (or (get pc "CriteriaList") (get pc :CriteriaList)))]
           (sequential? cl)))))
 
+(defn unrenderable-criteria
+  "Correlated criteria (any map carrying \"Criteria\") that lack Occurrence or
+   StartWindow. circe-be (WebAPI) dereferences both without a null check, so
+   such a cohort fails generation, preview and /cohortdefinition/sql with a
+   NullPointerException. The in-process trexsql renderer tolerates the gap, so
+   it has to be caught here or the cohort validates and then cannot run."
+  [body]
+  (let [found (atom [])]
+    (letfn [(walk [x path]
+              (cond
+                (map? x)
+                (do (when (contains? x "Criteria")
+                      (doseq [k ["Occurrence" "StartWindow"]
+                              :when (nil? (get x k))]
+                        (swap! found conj (str path " has no " k))))
+                    (doseq [[k v] x] (walk v (str path "." (name k)))))
+                (sequential? x)
+                (doseq [[i v] (map-indexed vector x)] (walk v (str path "[" i "]")))
+                :else nil))]
+      (walk body "expression"))
+    @found))
+
 (defn pre-parse
   "Parse + structural pre-check. Returns {:ok true :body data} or
    {:ok false :errors [...]}."
@@ -61,6 +83,11 @@
       (not (valid-circe-shape? body))
       {:ok false
        :errors ["expression has no PrimaryCriteria.CriteriaList — does not look like a Circe CohortExpression"]}
+
+      (seq (unrenderable-criteria body))
+      {:ok false
+       :errors (into [] (map #(str % " — WebAPI cannot render it. Set Occurrence (e.g. {\"Type\": 2, \"Count\": 1} for at least one) and StartWindow on every criterion.")
+                             (unrenderable-criteria body)))}
 
       :else
       {:ok true :body body})))
