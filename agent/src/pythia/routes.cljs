@@ -17,6 +17,7 @@
    {:name "profiles-source" :params ["sourceKey"] :label "Profiles (source)"}
    {:name "profile-view" :params ["sourceKey" "personId"] :label "Patient profile"}
    {:name "profile-view-cohort" :params ["sourceKey" "personId" "cohortId"] :label "Patient profile (cohort)"}
+   {:name "api-keys" :params [] :label "API keys"}
    {:name "feature-analyses" :params [] :label "Feature analyses"}
    {:name "characterizations" :params [] :label "Characterizations"}
    {:name "pathways" :params [] :label "Pathways"}

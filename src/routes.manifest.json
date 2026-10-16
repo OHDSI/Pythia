@@ -67,6 +67,13 @@
     "label": "Patient profile (cohort)"
   },
   {
+    "name": "api-keys",
+    "path": "/profile/api-keys",
+    "params": [],
+    "agentVisible": true,
+    "label": "API keys"
+  },
+  {
     "name": "feature-analyses",
     "path": "feature-analyses",
     "params": [],
@@ -93,6 +100,15 @@
     "params": [],
     "agentVisible": true,
     "label": "Incidence rates"
+  },
+  {
+    "name": "analysis-plugin",
+    "path": "x/:pluginId/:itemId",
+    "params": [
+      "pluginId",
+      "itemId"
+    ],
+    "agentVisible": false
   },
   {
     "name": "feature-analysis-new",
@@ -295,12 +311,10 @@
     "agentVisible": false
   },
   {
-    "name": "oauth-token",
-    "path": "/:client/:token/:redirectUrl?",
+    "name": "not-found",
+    "path": "/:pathMatch(.*)*",
     "params": [
-      "client",
-      "token",
-      "redirectUrl"
+      "pathMatch"
     ],
     "agentVisible": false
   }

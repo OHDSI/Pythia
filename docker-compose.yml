@@ -32,7 +32,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:ff693804900450456e2c871d5c2a09b31fc57b754677471e493ff5a099009df9}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:f865edfba94ae7c4cee1bba0146a655fc753601fe04aba05bb2370af7e4476ad}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -72,9 +72,9 @@ services:
       retries: 10
 
   # Single trex node. Hosts the embedded WebAPI on :8080, started by trex itself
-  # at boot (see D2E_COMPAT below).
+  # at boot (see WEBAPI_NATIVE_ENABLED / the D2E_COMPAT note below).
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:ff693804900450456e2c871d5c2a09b31fc57b754677471e493ff5a099009df9}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:f865edfba94ae7c4cee1bba0146a655fc753601fe04aba05bb2370af7e4476ad}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -111,14 +111,19 @@ services:
     environment:
       <<: *swarm-config
       SWARM_NODE: trex
-      # Starts the embedded WebAPI (:8080) during trex's own boot, via
-      # d2e-compat block 1 (itself gated by WEBAPI_NATIVE_ENABLED, default on).
-      # That start call is only reachable behind this flag; everything else the
-      # flag turns on is inert here — the URL middleware only rewrites
-      # /d2e-prefixed requests, the legacy trex.db registry migration returns
-      # early because no `trex` schema exists, and the source/cache attach
-      # blocks find no rows. Without it nothing boots WebAPI, and `restart trex`
-      # leaves it down.
+      # NOT required for the embedded WebAPI any more. trex #222 moved that
+      # start call out of d2e-compat block 1 into core/server/index.ts, where it
+      # runs unconditionally behind WEBAPI_NATIVE_ENABLED (default on); verified
+      # against this pin by booting with D2E_COMPAT=false, where WebAPI still
+      # came up in ~15s. The older comment here said the opposite.
+      #
+      # Kept on because the rest of what it turns on is still inert or harmless
+      # here — the URL middleware only rewrites /d2e-prefixed requests, the
+      # legacy trex.db registry migration returns early because no `trex` schema
+      # exists, the source/cache attach blocks find no rows, and provisioning is
+      # skipped because POSTGRES_MANAGE_CONFIG/USERS are unset. It does now also
+      # start an in-process FHIR server and retry a Prefect secret re-seed; both
+      # log and move on. Turn it off if you want that surface gone.
       D2E_COMPAT: "true"
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-mypass}@postgres:5432/testdb
       SCHEMA_DIR: /usr/src/core/schema
@@ -242,7 +247,12 @@ services:
     # third_party/Atlas3 and shadows the pinned image locally; plain `up -d`
     # pulls the pin. Bump ATLAS_IMAGE (or the default) once a change is merged
     # and published.
-    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-75a31d9}
+    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-f775da5}
+    # OHDSI publishes atlas3 for linux/amd64 only (every tag, not just this
+    # pin), so on an arm64 host the pull fails outright with "no matching
+    # manifest for linux/arm64/v8" rather than falling back. Ask for amd64
+    # explicitly and let Docker emulate, the same way atlas3-postgres does.
+    platform: linux/amd64
     pull_policy: missing
     build:
       context: ./third_party/Atlas3
