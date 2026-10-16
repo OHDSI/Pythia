@@ -227,3 +227,28 @@
                      (is (re-find #"has no concepts" d))
                      (is (re-find #"not defined" d)))
                    (restore) (done)))))))
+
+;; From a real failure: a rule built without a cardinality was saved with no
+;; Occurrence. It read as "at least one" in the editor, but circe-be could not
+;; render the cohort at all — the live preview and generation both failed with
+;; a NullPointerException.
+(deftest cohort-checks-flag-a-criterion-circe-cannot-render
+  (async done
+    (let [window {:Start {:Coeff -1} :End {:Coeff 1}}
+          body (assoc mixed-rule-body :InclusionRules
+                      [{:name "At least 1 osteoarthritis diagnosis"
+                        :expression {:CriteriaList [{:Criteria {:ConditionOccurrence {:CodesetId 1}}
+                                                     :StartWindow window}]}}
+                       {:name "Exclude prior GI bleed"
+                        :expression {:CriteriaList [{:Criteria {:ConditionOccurrence {:CodesetId 2}}
+                                                     :StartWindow window
+                                                     :Occurrence {:Type 0 :Count 0}}]}}])
+          [_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 80 :intent "OA patients without prior GI bleed"} {})
+          (.then (fn [out]
+                   (let [check (get (checks-by-id out) "criteria-renderable")]
+                     (is (false? (:pass check)))
+                     (is (re-find #"InclusionRules\[0\]\.expression\.CriteriaList\[0\] has no Occurrence"
+                                  (:detail check)))
+                     (is (not (re-find #"InclusionRules\[1\]" (:detail check)))))
+                   (restore) (done)))))))

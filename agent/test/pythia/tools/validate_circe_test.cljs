@@ -124,3 +124,32 @@
                    (restore)
                    (done)))
           (.catch (fn [e] (restore) (is false (str "unexpected throw: " e)) (done)))))))
+
+;; circe-be (WebAPI) throws a NullPointerException on a correlated criterion
+;; without Occurrence or StartWindow, while the in-process renderer accepts it,
+;; so the gap has to be caught before rendering.
+(defn- with-rule [criterion]
+  (assoc minimal-circe :InclusionRules
+         [{:name "rule" :expression {:Type "ALL" :CriteriaList [criterion]}}]))
+
+(deftest pre-parse-rejects-a-criterion-without-occurrence
+  (let [out (vc/pre-parse (js/JSON.stringify
+                           (clj->js (with-rule {:Criteria {:ConditionOccurrence {:CodesetId 0}}
+                                                :StartWindow {:Start {:Coeff -1} :End {:Coeff 1}}}))))]
+    (is (false? (:ok out)))
+    (is (= 1 (count (:errors out))))
+    (is (re-find #"InclusionRules\[0\]\.expression\.CriteriaList\[0\] has no Occurrence"
+                 (first (:errors out))))))
+
+(deftest pre-parse-rejects-a-criterion-without-start-window
+  (let [out (vc/pre-parse (js/JSON.stringify
+                           (clj->js (with-rule {:Criteria {:ConditionOccurrence {:CodesetId 0}}
+                                                :Occurrence {:Type 2 :Count 1}}))))]
+    (is (false? (:ok out)))
+    (is (re-find #"has no StartWindow" (first (:errors out))))))
+
+(deftest pre-parse-accepts-a-complete-criterion
+  (is (:ok (vc/pre-parse (js/JSON.stringify
+                          (clj->js (with-rule {:Criteria {:ConditionOccurrence {:CodesetId 0}}
+                                               :Occurrence {:Type 2 :Count 1}
+                                               :StartWindow {:Start {:Coeff -1} :End {:Coeff 1}}})))))))
