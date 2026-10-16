@@ -55,3 +55,9 @@
   (is (str/includes? prompt/base-prompt "current step")
       "must preserve plan-block's current-step semantics")
   (is (str/includes? prompt/base-prompt "required step whose")))
+
+(deftest base-prompt-treats-unrenderable-criteria-as-a-blocker
+  ;; A criterion saved without an occurrence count makes WebAPI throw on every
+  ;; render, so the cohort's preview and generation silently fail.
+  (is (str/includes? prompt/base-prompt "criteria-renderable"))
+  (is (str/includes? prompt/base-prompt "change its occurrence count")))

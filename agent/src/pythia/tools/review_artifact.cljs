@@ -163,8 +163,9 @@
        (check "criteria-renderable" (empty? unrenderable)
               (if (seq unrenderable)
                 (str (str/join "; " unrenderable)
-                     " — WebAPI cannot generate or preview this cohort. Re-propose the rule "
-                     "with an explicit cardinality (e.g. logicType=AT_LEAST count=1).")
+                     " — WebAPI cannot generate or preview this cohort. Re-proposing the rule "
+                     "does not fix it; ask the user to change that criterion's occurrence count "
+                     "in the cohort editor (e.g. to 2 and back to 1) and save.")
                 "every criterion has an Occurrence and a StartWindow"))])))
 
 (defn- concept-set-checks [body]

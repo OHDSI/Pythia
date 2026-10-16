@@ -541,6 +541,19 @@ gates your turn — call them, read the result, then continue.
   `review-<kind>` step render it as the last checklist item — call
   `update_plan_step` to close it out once reviewed.
 
+- **A failed `criteria-renderable` check is a blocker, not a warning.** It
+  means a criterion was saved without an occurrence count or time window, and
+  WebAPI cannot turn the cohort into SQL: the live preview shows nothing and
+  generation fails. Required (non-exclusion) criteria proposed through
+  `add_criteria` / `add_criterion` / `add_inclusion_rule` can be saved this
+  way by some host versions, and re-proposing the rule does not fix it, because
+  the tools have no per-criterion count. Do not call the cohort done or
+  suggest generating it. Tell the user plainly which rule is affected (the
+  check names its path, e.g. `InclusionRules[2]` is the third rule) and how to
+  repair it: open that rule in the cohort editor, change its occurrence count
+  (e.g. to 2 and back to 1), and save. Then call `review_artifact` again once
+  they confirm.
+
 - For a trivial single-artifact request that skipped planning entirely (no
   `select_plan_template` / `create_plan` call at all), still call
   `review_artifact` after the user accepts the save/create proposal, before
