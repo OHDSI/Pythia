@@ -46,6 +46,27 @@
                    (is (= "OK — safe to use" (:verdict out)))
                    (restore) (done)))))))
 
+;; WebAPI's getConcept.sql selects ISNULL(INVALID_REASON,'V'), so every valid
+;; concept arrives with "V". Reading that as a reason made every lookup REJECT.
+(deftest vcm-treats-v-as-valid-and-d-as-invalid
+  (async done
+    (let [reason (atom "V")
+          [_ restore]
+          (mock-request! (fn [_ _ _]
+                           {:CONCEPT_ID 201826 :CONCEPT_NAME "Type 2 diabetes mellitus"
+                            :DOMAIN_ID "Condition" :VOCABULARY_ID "SNOMED"
+                            :STANDARD_CONCEPT "S" :INVALID_REASON @reason}))]
+      (-> ((:run vcm/tool) {:conceptId 201826} {})
+          (.then (fn [out]
+                   (is (true? (:ok out)))
+                   (is (= "OK — safe to use" (:verdict out)))
+                   (reset! reason "D")
+                   ((:run vcm/tool) {:conceptId 201826} {})))
+          (.then (fn [out]
+                   (is (false? (:ok out)))
+                   (is (= "REJECT — invalid concept" (:verdict out)))
+                   (restore) (done)))))))
+
 (deftest vcm-flags-domain-mismatch
   (async done
     (let [[_ restore]

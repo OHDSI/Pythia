@@ -4,7 +4,12 @@
    stated `intent`, before the agent declares the artifact done. The checks
    catch structural absence (no entry event, no exit strategy, missing
    references); they cannot catch wrong clinical logic — the model is
-   instructed to weigh them alongside its own judgment."
+   instructed to weigh them alongside its own judgment.
+
+   Two inputs come from outside the model's own account of its work: every
+   concept-set item is looked up again in the session source's vocabulary,
+   and the active plan's Goal / Success criteria (written before the work
+   began) are returned next to `intent`, which is written after it."
   (:require [clojure.string :as str]
             [pythia.artifacts :as artifacts]
             [pythia.webapi :as webapi]))
@@ -195,6 +200,93 @@
    (check "has-outcome-ids" (seq (:outcomeIds body)) (str (count (:outcomeIds body)) " outcome id(s)"))
    (check "time-at-risk-set" (some? (:timeAtRisk body)) "timeAtRisk window")])
 
+;; ---------- live vocabulary ----------
+;;
+;; A saved concept set carries a snapshot of each concept (STANDARD_CONCEPT,
+;; INVALID_REASON) from whichever vocabulary it was built against. Vocabularies
+;; are re-released and differ per source, so the snapshot can say Standard while
+;; the source being analysed has the concept deprecated, non-standard or absent
+;; — and a criterion on such a concept quietly matches no one.
+
+(defn- concept-items
+  "Non-excluded concept-set items as {:id :name :set} — from a cohort's
+   ConceptSets, or from a bare concept-set expression."
+  [kind body]
+  (let [sets (case kind
+               "cohort" (for [cs (:ConceptSets body)]
+                          [(:name cs) (get-in cs [:expression :items])])
+               "concept_set" [[nil (:items body)]]
+               [])]
+    (for [[set-name items] sets
+          item items
+          :let [c (:concept item)
+                id (:CONCEPT_ID c)]
+          :when (and (number? id) (not (:isExcluded item)))]
+      {:id id :name (:CONCEPT_NAME c) :set set-name})))
+
+(defn vocabulary-issues
+  "Concept-set items that the source vocabulary does not return as a valid
+   Standard concept, given the concepts /lookup/identifiers returned for them.
+   Pure — exposed for direct testing."
+  [items found]
+  (let [by-id (into {} (map (juxt :CONCEPT_ID identity)) found)]
+    (for [{:keys [id name set]} items
+          :let [c (get by-id id)
+                label (str (or name "concept") " (" id
+                           (when set (str ", concept set \"" set "\"")) ")")
+                ;; WebAPI selects ISNULL(INVALID_REASON,'V'): "V" is valid.
+                reason (some-> (:INVALID_REASON c) str str/trim)
+                issue (cond
+                        (nil? c)
+                        (str label " is not in this source's vocabulary")
+
+                        (not (contains? #{nil "" "V"} reason))
+                        (str label " is invalid in this source's vocabulary (INVALID_REASON="
+                             reason ")")
+
+                        (not= "S" (:STANDARD_CONCEPT c))
+                        (str label " is not Standard in this source's vocabulary (STANDARD_CONCEPT="
+                             (:STANDARD_CONCEPT c) ")"))]
+          :when issue]
+      issue)))
+
+(defn- vocabulary-check [items found]
+  (let [id "concepts-current-in-source-vocabulary"]
+    (if (nil? found)
+      (assoc (check id true "NOT VERIFIED — the vocabulary lookup failed; only the saved snapshot was checked")
+             :skipped true)
+      (let [issues (vocabulary-issues items found)]
+        (check id (empty? issues)
+               (if (seq issues)
+                 (str (str/join "; " issues)
+                      " — the criterion matches no one on this source for these concepts; "
+                      "replace them via search_concepts and the matching update tool")
+                 (str "all " (count items) " concept(s) are valid Standard concepts in this source's vocabulary")))))))
+
+(defn- lookup-concepts
+  "POST /vocabulary/{sourceKey}/lookup/identifiers. Resolves the concepts the
+   source returns (absent ids are simply missing), or nil when the call fails."
+  [source-key ids auth]
+  (webapi/request "POST" (str "/vocabulary/" source-key "/lookup/identifiers")
+                  {:auth auth :body (vec ids)}))
+
+;; ---------- plan goal ----------
+
+(defn plan-goal
+  "The active plan's \"## Goal\" and \"## Success criteria\" sections, or nil.
+   Pure — exposed for direct testing."
+  [plan]
+  (let [doc (str (:document plan))
+        section (fn [heading]
+                  (some-> (re-find (re-pattern (str "## " heading "[^\\n]*\\n([\\s\\S]*?)(?=\\n## |$)")) doc)
+                          second str/trim not-empty))
+        goal (section "Goal")
+        success (section "Success criteria")]
+    (when (or goal success)
+      (cond-> {}
+        goal (assoc :goal goal)
+        success (assoc :success-criteria success)))))
+
 (defn checks-for
   "Kind-specific structural checks. Pure — exposed for direct testing."
   [kind body]
@@ -212,7 +304,9 @@
         id (:id args)
         intent (some-> (:intent args) str str/trim)
         path-fn (artifacts/kind->path kind)
-        auth (:auth ctx)]
+        auth (:auth ctx)
+        source-key (or (:source-key ctx) "EUNOMIA")
+        goal (plan-goal (:plan ctx))]
     (cond
       (nil? path-fn)
       (js/Promise.resolve
@@ -232,11 +326,22 @@
           (.then (fn [{:keys [status body]}]
                    (cond
                      (= 200 status)
-                     {:kind kind :id id :intent intent
-                      :artifact body
-                      :checks (checks-for kind body)
-                      :instruction
-                      "Cross-reference :checks against `intent` plus your own clinical judgment — the checks catch structural absence, not wrong clinical logic. If you find a real problem, propose a fix via the matching update_* tool; do not just mention it in prose."}
+                     (let [items (concept-items kind body)]
+                       (-> (if (seq items)
+                             (lookup-concepts source-key (distinct (map :id items)) auth)
+                             (js/Promise.resolve nil))
+                           (.then
+                            (fn [found]
+                              (cond-> {:kind kind :id id :intent intent
+                                       :artifact body
+                                       :checks (cond-> (checks-for kind body)
+                                                 (seq items) (conj (vocabulary-check items found)))
+                                       :instruction
+                                       (str "Cross-reference :checks against `intent` plus your own clinical judgment — the checks catch structural absence, not wrong clinical logic."
+                                            (when goal
+                                              " Judge the artifact against :plan-goal as well: it was written before the work began, while `intent` was written after it — where they disagree, :plan-goal is what the user agreed to.")
+                                            " If you find a real problem, propose a fix via the matching update_* tool; do not just mention it in prose.")}
+                                goal (assoc :plan-goal goal))))))
 
                      (= 404 status) {:error (str kind " " id " not found")}
 
@@ -245,6 +350,6 @@
 
 (def tool
   {:name "review_artifact"
-   :description "Review a saved artifact (cohort, concept set, feature analysis, characterization, pathway, or incidence rate) against the stated `intent` before declaring it done. Fetches the full current definition (like get_artifact) and runs kind-specific structural checks (entry event present, Standard concepts used, observation window / exit logic set, required references present). Weigh the checks plus your own clinical judgment against `intent`; propose a fix via the matching update_* tool if something's wrong. Does NOT end your turn."
+   :description "Review a saved artifact (cohort, concept set, feature analysis, characterization, pathway, or incidence rate) against the stated `intent` before declaring it done. Fetches the full current definition (like get_artifact) and runs kind-specific structural checks (entry event present, Standard concepts used, observation window / exit logic set, required references present), re-checks every concept-set item against the source's live vocabulary, and returns the active plan's Goal / Success criteria as :plan-goal. Weigh the checks plus your own clinical judgment against `intent`; propose a fix via the matching update_* tool if something's wrong. Does NOT end your turn."
    :schema schema
    :run run})

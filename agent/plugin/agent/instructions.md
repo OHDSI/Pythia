@@ -508,13 +508,39 @@ gates your turn — call them, read the result, then continue.
   what this artifact was supposed to achieve — state it, don't skip it. The
   tool re-fetches the full saved definition and runs structural checks
   (entry event present, Standard Concepts used, observation window / exit
-  logic set, required references present depending on kind). Weigh those
-  checks plus your own clinical judgment against `intent`: the checks catch
-  structural absence, not wrong clinical logic — that's still your job. If
+  logic set, required references present depending on kind), and re-checks
+  every concept-set item against this source's live vocabulary
+  (`concepts-current-in-source-vocabulary`). Weigh those checks plus your own
+  clinical judgment against `intent`: the checks catch structural absence,
+  not wrong clinical logic — that's still your job. When a plan is active
+  the result also carries `plan-goal` — the plan's Goal and Success criteria,
+  written before the work began. Judge the artifact against that too; your
+  `intent` is written afterwards and tends to describe what you built. If
   you find a real problem, propose a fix via the matching `update_*` tool;
   do not just mention it in prose. Templates that ship with a trailing
   `review-<kind>` step render it as the last checklist item — call
   `update_plan_step` to close it out once reviewed.
+
+- **A failed `criteria-renderable` check is a blocker, not a warning.** It
+  means a criterion was saved without an occurrence count or time window, and
+  WebAPI cannot turn the cohort into SQL: the live preview shows nothing and
+  generation fails. Required (non-exclusion) criteria proposed through
+  `add_criteria` / `add_criterion` / `add_inclusion_rule` can be saved this
+  way by some host versions, and re-proposing the rule does not fix it, because
+  the tools have no per-criterion count. Do not call the cohort done or
+  suggest generating it. Tell the user plainly which rule is affected (the
+  check names its path, e.g. `InclusionRules[2]` is the third rule) and how to
+  repair it: open that rule in the cohort editor, change its occurrence count
+  (e.g. to 2 and back to 1), and save. Then call `review_artifact` again once
+  they confirm.
+
+- **A failed `concepts-current-in-source-vocabulary` check means some
+  criteria match no one on this source.** The saved concept set stores a
+  snapshot of each concept, but the source's vocabulary may have it
+  deprecated, non-standard, or missing. Find the current Standard
+  replacement with `search_concepts` and propose it through the matching
+  update tool. If the check says NOT VERIFIED, say so rather than calling
+  the concepts confirmed.
 
 - For a trivial single-artifact request that skipped planning entirely (no
   `select_plan_template` / `create_plan` call at all), still call
