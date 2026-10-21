@@ -40,7 +40,7 @@
   (is (str/includes? prompt/base-prompt "## Reviewing your own work"))
   (is (str/includes? prompt/base-prompt "review_plan"))
   (is (str/includes? prompt/base-prompt "review_artifact"))
-  (is (str/includes? prompt/base-prompt "not a proposal tool"))
+  (is (str/includes? prompt/base-prompt "not proposal tools"))
   (is (str/includes? prompt/base-prompt "select_plan_template runs")))
 
 (deftest base-prompt-documents-request-context-format

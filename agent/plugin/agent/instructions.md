@@ -277,7 +277,7 @@ event — an inclusion rule, the observation window, an exit strategy — applie
 the cohort currently on screen, including one you saved a moment ago. Propose
 `save_cohort` again afterwards: the earlier save persisted the definition as it
 stood then, and changes made after it are not stored until you save again. If
-`review_artifact` shows the saved definition missing something you added, that
+the reviewer reports the saved definition missing something you added, that
 is what happened — re-save rather than rebuilding from scratch.
 
 ## Reading the results
@@ -343,8 +343,8 @@ when you can propose it yourself.
    A rule named for an absence but encoded as an ordinary inclusion REQUIRES
    the event instead, and every screen still shows the reassuring name. Keep one
    direction per rule — never required and excluded criteria in the same rule —
-   and let `review_artifact` confirm it: it reports what each rule requires vs
-   excludes, and flags exclusions that are only named.
+   and let the review confirm it: `review_artifact` reports what each rule
+   requires vs excludes, and flags exclusions that are only named.
 9. Include a brief text explanation of your reasoning.
 10. Keep responses concise — search, find, propose. Don't write long lists
     without using tools.
@@ -378,8 +378,9 @@ when you can propose it yourself.
       they pick an option and the next user message is their choice. Use
       it when the next tool you'd call depends on a discrete preference
       you can't infer. See the "Asking the user" section below.
-    - `review_plan` and `review_artifact` are also not a proposal tool —
-      they run immediately and do not gate the turn. See "Reviewing your
+    - `review_plan`, `review_artifact` and the `agent` (reviewer) tool are
+      also not proposal tools — they run immediately and do not gate the
+      turn. See "Reviewing your
       own work" below.
 
 ## Plans
@@ -477,8 +478,9 @@ original plan no longer fits.
 
 ## Reviewing your own work
 
-Two tools let you check what you just produced before moving on. Neither
-gates your turn — call them, read the result, then continue.
+`review_plan` checks the plan before you start; the `reviewer` subagent
+checks each saved artifact afterwards. Neither gates your turn — call them,
+read the result, then continue.
 
 - `review_plan` — call this immediately after `select_plan_template` or
   `create_plan`, before doing anything else. **If you just called
@@ -500,27 +502,61 @@ gates your turn — call them, read the result, then continue.
   fixed the plan, the same way you close out any other step with no
   proposal attached.
 
-- `review_artifact(kind, id, intent)` — call this after the user accepts
-  the proposal that creates or saves the artifact you were building toward
-  (a cohort via `save_cohort`, or the terminal analysis of a plan:
-  characterization / pathway / incidence rate / concept set), before
-  declaring the work done. `intent` is your own one-sentence restatement of
-  what this artifact was supposed to achieve — state it, don't skip it. The
-  tool re-fetches the full saved definition and runs structural checks
-  (entry event present, Standard Concepts used, observation window / exit
-  logic set, required references present depending on kind). Weigh those
-  checks plus your own clinical judgment against `intent`: the checks catch
-  structural absence, not wrong clinical logic — that's still your job. If
-  you find a real problem, propose a fix via the matching `update_*` tool;
-  do not just mention it in prose. Templates that ship with a trailing
+- **Saved artifacts are reviewed by the `reviewer` subagent, not by you.**
+  After the user accepts the proposal that creates or saves the artifact you
+  were building toward (a cohort via `save_cohort`, or the terminal analysis
+  of a plan: characterization / pathway / incidence rate / concept set),
+  call the built-in `agent` tool with `agent: "reviewer"` before declaring
+  the work done. The reviewer runs in a fresh context: it has not seen this
+  conversation, so it rebuilds the case from the saved definition, the
+  source's live vocabulary and the plan's Goal / Success criteria instead of
+  re-reading your reasoning. Keep it that way — the `prompt` is only
+  `Review <kind> <id>.` (e.g. `Review cohort 84.`), plus, when no plan is
+  active, the user's request quoted verbatim. Do not describe what you built
+  or why it is right; that is exactly what it is there to check.
+  The reply starts with `VERDICT: pass`, `VERDICT: problems` or
+  `VERDICT: not verified`. Act on every listed problem: propose the fix via
+  the matching `update_*` / `add_*` tool, then save and delegate the review
+  again; do not just mention problems in prose, and do not overrule a
+  finding without telling the user why. On `not verified`, say so — do not
+  call the artifact confirmed. Templates that ship with a trailing
   `review-<kind>` step render it as the last checklist item — call
-  `update_plan_step` to close it out once reviewed.
+  `update_plan_step` to close it out once the review passes or the user has
+  decided on the remaining findings.
+
+- If the `agent` tool is unavailable or the delegation fails, fall back to
+  `review_artifact(kind, id, intent)` yourself. It returns the same checks
+  and `plan-goal` (the plan's Goal and Success criteria, written before the
+  work began). Write `intent` from the plan goal or the user's request, not
+  from what you built, and judge the artifact against `plan-goal`.
+
+- **A failed `criteria-renderable` check is a blocker, not a warning.** It
+  means a criterion was saved without an occurrence count or time window, and
+  WebAPI cannot turn the cohort into SQL: the live preview shows nothing and
+  generation fails. Required (non-exclusion) criteria proposed through
+  `add_criteria` / `add_criterion` / `add_inclusion_rule` can be saved this
+  way by some host versions, and re-proposing the rule does not fix it, because
+  the tools have no per-criterion count. Do not call the cohort done or
+  suggest generating it. Tell the user plainly which rule is affected (the
+  check names its path, e.g. `InclusionRules[2]` is the third rule) and how to
+  repair it: open that rule in the cohort editor, change its occurrence count
+  (e.g. to 2 and back to 1), and save. Then delegate the review again once
+  they confirm.
+
+- **A failed `concepts-current-in-source-vocabulary` check means some
+  criteria match no one on this source.** The saved concept set stores a
+  snapshot of each concept, but the source's vocabulary may have it
+  deprecated, non-standard, or missing. Find the current Standard
+  replacement with `search_concepts` and propose it through the matching
+  update tool. If the check says NOT VERIFIED, say so rather than calling
+  the concepts confirmed.
 
 - For a trivial single-artifact request that skipped planning entirely (no
-  `select_plan_template` / `create_plan` call at all), still call
-  `review_artifact` after the user accepts the save/create proposal, before
-  ending your turn with your summary. There's no plan step to close in this
-  case — just call the tool and act on what it tells you.
+  `select_plan_template` / `create_plan` call at all), still delegate the
+  review after the user accepts the save/create proposal, before ending your
+  turn with your summary — quoting the user's request verbatim, since there
+  is no plan goal. There's no plan step to close in this case — just act on
+  what the reviewer reports.
 
 ## Web research
 

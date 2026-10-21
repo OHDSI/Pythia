@@ -5,15 +5,26 @@
 
 (defn- mock-request-status!
   "Stub webapi/request-status: resolves (route-fn method path opts). Returns
-   [recorded restore] — mirrors the pattern in tools/diagnostics_test.cljs."
-  [route-fn]
-  (let [recorded (atom [])
-        orig webapi/request-status]
-    (set! webapi/request-status
-          (fn [method path opts]
-            (swap! recorded conj {:method method :path path :opts opts})
-            (js/Promise.resolve (route-fn method path opts))))
-    [recorded (fn [] (set! webapi/request-status orig))]))
+   [recorded restore] — mirrors the pattern in tools/diagnostics_test.cljs.
+   Also stubs webapi/request (the vocabulary lookup) with `lookup-fn`, which
+   gets the posted ids; it defaults to a failed lookup (nil). Lookup calls
+   are recorded too."
+  ([route-fn] (mock-request-status! route-fn (constantly nil)))
+  ([route-fn lookup-fn]
+   (let [recorded (atom [])
+         orig webapi/request-status
+         orig-request webapi/request]
+     (set! webapi/request-status
+           (fn [method path opts]
+             (swap! recorded conj {:method method :path path :opts opts})
+             (js/Promise.resolve (route-fn method path opts))))
+     (set! webapi/request
+           (fn [method path opts]
+             (swap! recorded conj {:method method :path path :opts opts})
+             (js/Promise.resolve (lookup-fn (:body opts)))))
+     [recorded (fn []
+                 (set! webapi/request-status orig)
+                 (set! webapi/request orig-request))])))
 
 (defn- checks-by-id [out]
   (into {} (map (juxt :id identity) (:checks out))))
@@ -251,4 +262,112 @@
                      (is (re-find #"InclusionRules\[0\]\.expression\.CriteriaList\[0\] has no Occurrence"
                                   (:detail check)))
                      (is (not (re-find #"InclusionRules\[1\]" (:detail check)))))
+                   (restore) (done)))))))
+;; ---------- live vocabulary ----------
+;;
+;; The saved snapshot says Standard; what matters is the source being analysed.
+;; WebAPI returns valid concepts with INVALID_REASON "V" and leaves out ids the
+;; source does not have.
+
+(defn- vocab [& concepts]
+  (fn [ids] (filterv #(some #{(:CONCEPT_ID %)} ids) concepts)))
+
+(deftest vocabulary-check-flags-concepts-that-drifted-in-the-source
+  (async done
+    (let [lookup (vocab {:CONCEPT_ID 1 :STANDARD_CONCEPT "S" :INVALID_REASON "V"}
+                        {:CONCEPT_ID 2 :STANDARD_CONCEPT "N" :INVALID_REASON "D"})
+          [recorded restore] (mock-request-status! (fn [_ _ _] {:status 200 :body mixed-rule-body}) lookup)]
+      (-> ((:run ra/tool) {:kind "cohort" :id 81 :intent "x"} {:source-key "SYNPUF"})
+          (.then (fn [out]
+                   (let [lookup-call (second @recorded)
+                         check (get (checks-by-id out) "concepts-current-in-source-vocabulary")]
+                     (is (= "POST" (:method lookup-call)))
+                     (is (= "/vocabulary/SYNPUF/lookup/identifiers" (:path lookup-call)))
+                     (is (= [1 2 3] (:body (:opts lookup-call))))
+                     (is (false? (:pass check)))
+                     ;; the snapshot said Standard for all three
+                     (is (true? (:pass (get (checks-by-id out) "all-concept-items-standard"))))
+                     (is (re-find #"\(2, concept set \"Osteoarthritis\"\) is invalid .*INVALID_REASON=D" (:detail check)))
+                     (is (re-find #"\(3, concept set \"GI hemorrhage\"\) is not in this source's vocabulary" (:detail check)))
+                     (is (not (re-find #"\(1," (:detail check)))))
+                   (restore) (done)))))))
+
+(deftest vocabulary-check-passes-when-every-concept-is-current
+  (async done
+    (let [lookup (vocab {:CONCEPT_ID 1 :STANDARD_CONCEPT "S" :INVALID_REASON "V"}
+                        {:CONCEPT_ID 2 :STANDARD_CONCEPT "S" :INVALID_REASON "V"}
+                        {:CONCEPT_ID 3 :STANDARD_CONCEPT "S" :INVALID_REASON "V"})
+          [_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body mixed-rule-body}) lookup)]
+      (-> ((:run ra/tool) {:kind "cohort" :id 82 :intent "x"} {})
+          (.then (fn [out]
+                   (let [check (get (checks-by-id out) "concepts-current-in-source-vocabulary")]
+                     (is (true? (:pass check)))
+                     (is (nil? (:skipped check))))
+                   (restore) (done)))))))
+
+(deftest vocabulary-check-says-not-verified-when-the-lookup-fails
+  (async done
+    (let [[_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body mixed-rule-body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 83 :intent "x"} {})
+          (.then (fn [out]
+                   (let [check (get (checks-by-id out) "concepts-current-in-source-vocabulary")]
+                     (is (true? (:skipped check)))
+                     (is (re-find #"NOT VERIFIED" (:detail check))))
+                   (restore) (done)))))))
+
+(deftest vocabulary-check-covers-concept-sets-and-skips-excluded-items
+  (async done
+    (let [body {:items [{:concept {:CONCEPT_ID 10 :CONCEPT_NAME "Atorvastatin" :STANDARD_CONCEPT "S"}}
+                        {:concept {:CONCEPT_ID 11 :CONCEPT_NAME "Old statin"} :isExcluded true}]}
+          [recorded restore] (mock-request-status! (fn [_ _ _] {:status 200 :body body})
+                                                   (vocab {:CONCEPT_ID 10 :STANDARD_CONCEPT "C" :INVALID_REASON "V"}))]
+      (-> ((:run ra/tool) {:kind "concept_set" :id 4 :intent "statins"} {})
+          (.then (fn [out]
+                   (let [check (get (checks-by-id out) "concepts-current-in-source-vocabulary")]
+                     (is (= [10] (:body (:opts (second @recorded)))))
+                     (is (false? (:pass check)))
+                     (is (re-find #"Atorvastatin \(10\) is not Standard" (:detail check))))
+                   (restore) (done)))))))
+
+(deftest no-vocabulary-lookup-for-kinds-without-concepts
+  (async done
+    (let [[recorded restore] (mock-request-status!
+                              (fn [_ _ _] {:status 200 :body {:targetIds [1] :outcomeIds [2] :timeAtRisk {}}}))]
+      (-> ((:run ra/tool) {:kind "incidence_rate" :id 1 :intent "x"} {})
+          (.then (fn [out]
+                   (is (= 1 (count @recorded)))
+                   (is (nil? (get (checks-by-id out) "concepts-current-in-source-vocabulary")))
+                   (restore) (done)))))))
+
+;; ---------- plan goal ----------
+
+(def ^:private plan-doc
+  (str "## Goal\nNew users of ibuprofen with osteoarthritis, no prior GI bleed.\n\n"
+       "## Approach\nReuse existing concept sets.\n\n"
+       "## Success criteria\n- GI bleed is an exclusion (zero cardinality)\n"))
+
+(deftest plan-goal-extracts-goal-and-success-criteria
+  (is (= {:goal "New users of ibuprofen with osteoarthritis, no prior GI bleed."
+          :success-criteria "- GI bleed is an exclusion (zero cardinality)"}
+         (ra/plan-goal {:document plan-doc})))
+  (is (nil? (ra/plan-goal {:document "just some notes"})))
+  (is (nil? (ra/plan-goal nil))))
+
+(deftest review-returns-the-plan-goal-written-before-the-work
+  (async done
+    (let [[_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body mixed-rule-body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 84 :intent "OA patients on ibuprofen"}
+                          {:plan {:document plan-doc :steps [{:id "s1"}]}})
+          (.then (fn [out]
+                   (is (re-find #"no prior GI bleed" (get-in out [:plan-goal :goal])))
+                   (is (re-find #"plan-goal" (:instruction out)))
+                   (restore) (done)))))))
+
+(deftest review-without-a-plan-has-no-plan-goal
+  (async done
+    (let [[_ restore] (mock-request-status! (fn [_ _ _] {:status 200 :body mixed-rule-body}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 85 :intent "x"} {})
+          (.then (fn [out]
+                   (is (not (contains? out :plan-goal)))
+                   (is (not (re-find #"plan-goal" (:instruction out))))
                    (restore) (done)))))))

@@ -54,7 +54,9 @@
       (conj (str "non-standard concept (STANDARD_CONCEPT=" standard
                  ") — search_concepts only returns standards but a hand-picked id may be source/classification"))
 
-      (and validReason (not (str/blank? (str validReason))))
+      ;; WebAPI selects ISNULL(INVALID_REASON,'V'), so a valid concept comes
+      ;; back as "V", not blank; only D (deleted) and U (upgraded) are invalid.
+      (and validReason (not (contains? #{"" "V"} (str/trim (str validReason)))))
       (conj (str "concept is invalid: reason=" validReason)))))
 
 (defn run [args ctx]

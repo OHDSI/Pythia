@@ -62,6 +62,9 @@ agent/
                           export per tool, re-exporting from _build/tools.js
         _build/tools.js   GENERATED, committed COPY of out/tools.js (directories
                           under tools/ are invisible to the trex tool loader)
+      subagents/reviewer/ fresh-context reviewer the main agent delegates artifact
+                           review to via trex's built-in `agent` tool (src/pythia/reviewer.cljs):
+                           instructions.md + tools/*.js GENERATED, committed; agent.edn by hand
       resources/          GENERATED, committed COPY of agent/resources/ (EDN corpora:
                           book-of-ohdsi/passages.edn, phenotype-library/cohorts-index.edn)
     evals/                eve-format evals — see "Evals" below
@@ -70,7 +73,7 @@ agent/
 ```
 
 Generated artifacts under `plugin/agent/` (`instructions.md`, `tools/*.js`,
-`tools/_build/tools.js`, `resources/`) are **committed** — run `npm run dist`
+`tools/_build/tools.js`, `resources/`, `subagents/reviewer/{instructions.md,tools/}`) are **committed** — run `npm run dist`
 and commit the result whenever `src/pythia/**` or `resources/**` change.
 
 ### Dynamic browser tools

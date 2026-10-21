@@ -5,7 +5,9 @@
   {:target :esm
    :output-dir "out"
    :modules {:tools {:exports {tools pythia.agent-tools/tools
-                                instructions pythia.prompt/base-prompt}}}
+                                instructions pythia.prompt/base-prompt
+                                reviewerInstructions pythia.reviewer/prompt
+                                reviewerTools pythia.reviewer/tool-names-js}}}
    :js-options {:js-provider :import
                 :keep-as-import #{"eve/tools"}}
    :compiler-options {:infer-externs :auto}}

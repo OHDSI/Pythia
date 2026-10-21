@@ -109,9 +109,32 @@ for (const reserved of ["search_concepts", "skill"]) {
   }
 }
 
+// The reviewer subagent: an eve-layout directory trex loads one level deep.
+// Every wrapper must be a server tool and the very object the parent's
+// wrapper exports (one shared _build/tools.js module instance).
+const reviewerRoot = new URL("../plugin/agent/subagents/reviewer/", import.meta.url);
+const reviewerFiles = [];
+for await (const entry of Deno.readDir(new URL("tools/", reviewerRoot))) {
+  if (entry.isFile && /\.(js|mjs)$/.test(entry.name)) reviewerFiles.push(entry.name);
+}
+if (reviewerFiles.length === 0) fail("reviewer", "no tool wrappers");
+for (const file of reviewerFiles) {
+  const name = file.replace(/\.(js|mjs)$/, "");
+  const def = (await import(new URL(`tools/${file}`, reviewerRoot).href)).default;
+  const parent = (await import(new URL(file, toolsDir).href)).default;
+  if (!def || def.__trexTool !== true) fail(`reviewer/${name}`, "not a defineTool result");
+  else if (typeof def.execute !== "function" || def.clientOnly) fail(`reviewer/${name}`, "must be a server tool");
+  if (def !== parent) fail(`reviewer/${name}`, "does not share the parent's tool module");
+}
+const reviewerInstructions = await Deno.readTextFile(new URL("instructions.md", reviewerRoot));
+if (!reviewerInstructions.includes("VERDICT:")) fail("reviewer", "instructions.md has no VERDICT format");
+await Deno.stat(new URL("agent.edn", reviewerRoot));
+
 if (failures > 0) {
   console.error(`smoke: ${failures} failure(s) across ${files.length} tools`);
   Deno.exit(1);
 }
 
-console.log(`smoke: ${files.length} tool wrappers and dynamic browser-tool provider OK`);
+console.log(
+  `smoke: ${files.length} tool wrappers, ${reviewerFiles.length} reviewer wrappers and dynamic browser-tool provider OK`,
+);

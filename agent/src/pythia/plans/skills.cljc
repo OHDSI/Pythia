@@ -133,32 +133,32 @@
 
    "review-cohort"
    {:label "Review the saved cohort"
-    :description "Fetch the saved cohort's full definition and check it against the original clinical intent before declaring it done."
-    :tools ["review_artifact"] :proposal-kind nil :route nil
-    :success "the cohort definition was reviewed against the stated intent"}
+    :description "Delegate the review to the reviewer subagent (agent tool, prompt `Review cohort <id>.`), which checks the saved definition against the plan goal in a fresh context, and act on its findings before declaring it done."
+    :tools ["agent"] :proposal-kind nil :route nil
+    :success "the reviewer passed the saved cohort, or its findings were fixed or put to the user"}
 
    "review-concept-set"
    {:label "Review the concept set"
-    :description "Fetch the saved concept set's full definition and check it against the original clinical intent."
-    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :description "Delegate the review to the reviewer subagent (agent tool, prompt `Review concept_set <id>.`), which checks the saved concept set against the plan goal in a fresh context, and act on its findings."
+    :tools ["agent"] :proposal-kind nil :route nil
     :success "the concept set was reviewed against the stated intent"}
 
    "review-characterization"
    {:label "Review the characterization"
-    :description "Fetch the characterization's full definition and check it references the right cohort(s) and feature analysis/es."
-    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :description "Delegate the review to the reviewer subagent (agent tool, prompt `Review characterization <id>.`), which checks it references the right cohort(s) and feature analysis/es, and act on its findings."
+    :tools ["agent"] :proposal-kind nil :route nil
     :success "the characterization was reviewed against the stated intent"}
 
    "review-pathway"
    {:label "Review the pathway analysis"
-    :description "Fetch the pathway analysis's full definition and check it references the right target and event cohorts."
-    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :description "Delegate the review to the reviewer subagent (agent tool, prompt `Review pathway <id>.`), which checks it references the right target and event cohorts, and act on its findings."
+    :tools ["agent"] :proposal-kind nil :route nil
     :success "the pathway analysis was reviewed against the stated intent"}
 
    "review-incidence-rate"
    {:label "Review the incidence-rate analysis"
-    :description "Fetch the incidence-rate analysis's full definition and check target, outcome, and time-at-risk are set as intended."
-    :tools ["review_artifact"] :proposal-kind nil :route nil
+    :description "Delegate the review to the reviewer subagent (agent tool, prompt `Review incidence_rate <id>.`), which checks target, outcome, and time-at-risk against the plan goal, and act on its findings."
+    :tools ["agent"] :proposal-kind nil :route nil
     :success "the incidence-rate analysis was reviewed against the stated intent"}})
 
 (defn skill [id] (get skills id))

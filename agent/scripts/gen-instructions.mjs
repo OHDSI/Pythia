@@ -5,7 +5,7 @@
 // the eve/tools stub import map for the same reason as gen-wrappers.mjs: the
 // compiled out/tools.js bundle has a bare `eve/tools` import that only
 // resolves via an import map.
-import { instructions } from "../out/tools.js";
+import { instructions, reviewerInstructions } from "../out/tools.js";
 
 if (typeof instructions !== "string" || instructions.length < 1000) {
   console.error(
@@ -21,3 +21,15 @@ await Deno.mkdir(new URL(".", outPath), { recursive: true });
 await Deno.writeTextFile(outPath, instructions);
 
 console.log(`gen-instructions: wrote ${outPath.pathname} (${instructions.length} chars)`);
+
+// The reviewer subagent's system prompt (pythia.reviewer/prompt). Its
+// agent.edn is committed by hand next to it.
+if (typeof reviewerInstructions !== "string" || reviewerInstructions.length < 500) {
+  console.error("gen-instructions: expected reviewer instructions from out/tools.js");
+  Deno.exit(1);
+}
+const reviewerPath = new URL("../plugin/agent/subagents/reviewer/instructions.md", import.meta.url);
+await Deno.mkdir(new URL(".", reviewerPath), { recursive: true });
+await Deno.writeTextFile(reviewerPath, reviewerInstructions);
+
+console.log(`gen-instructions: wrote ${reviewerPath.pathname} (${reviewerInstructions.length} chars)`);

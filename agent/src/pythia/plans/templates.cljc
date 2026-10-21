@@ -76,7 +76,7 @@
                    "so a refinement that is not saved has not happened. Do not rebuild the definition from scratch "
                    "to make one change — that loses whatever the user edited by hand.\n\n"
                    "## Success criteria\n"
-                   "The saved cohort reflects the requested change and nothing else, confirmed with review_artifact.")
+                   "The saved cohort reflects the requested change and nothing else, confirmed by the reviewer subagent.")
     :steps [{:skill "find-existing" :id "find-cohort" :label "Find the cohort to change" :required? true}
             {:skill "add-inclusion-exclusion" :id "apply-change" :label "Apply the requested change" :required? false}
             {:skill "build-cohort" :id "save-cohort" :label "Save the changed cohort" :required? true}
