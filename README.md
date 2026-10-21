@@ -104,6 +104,27 @@ BAO_AGENT_MODEL_SPEC=openai/openai.gpt-5.6-terra    # or a provider and model
 `OPENAI_BASE_URL` to use a different one. The `BAO_` prefix is historical and
 simply names the service that runs the assistant.
 
+OpenAI and Anthropic models can be reached directly or through AWS, Azure or
+Google Cloud. Put the settings for the route you use in `.env`:
+
+| Route | `BAO_AGENT_MODEL_SPEC` | Settings |
+|---|---|---|
+| Anthropic API | `anthropic/<model>` | `ANTHROPIC_API_KEY` |
+| OpenAI API | `openai/<model>` | `OPENAI_API_KEY`, `OPENAI_BASE_URL=https://api.openai.com/v1` |
+| AWS Bedrock | `bedrock/<model>` (e.g. `bedrock/us.anthropic.<model>`) | `AWS_BEARER_TOKEN_BEDROCK`, or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`); `AWS_REGION` |
+| OpenAI models on AWS | `bedrock-openai/openai.<model>` | `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION` |
+| Azure OpenAI | `azure/<deployment>` | `AZURE_RESOURCE_NAME`, `AZURE_API_KEY` |
+| Anthropic models in Microsoft Foundry | `azure-anthropic/<deployment>` | `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_FOUNDRY_API_KEY` |
+| Gemini on Google Cloud Vertex AI | `vertex/<model>` | `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`, `GOOGLE_VERTEX_CREDENTIALS`, or `GOOGLE_VERTEX_API_KEY` alone |
+| Anthropic models on Vertex AI | `vertex-anthropic/<model>` | `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`, `GOOGLE_VERTEX_CREDENTIALS` |
+| Partner models on Vertex AI (e.g. OpenAI gpt-oss) | `vertex-maas/<model>` | as above |
+
+`GOOGLE_VERTEX_CREDENTIALS` is the service-account key JSON on one line. The
+`bedrock-openai`, `azure`, `azure-anthropic` and `vertex*` routes and AWS access
+keys need a trex build that includes them (OHDSI/trex#359); until the pinned
+image does, point `TREX_IMAGE` at such a build. Restart the backend after
+changing any of these: `docker compose up -d trex`.
+
 ### Choosing versions
 
 ATLAS and the backend run at versions pinned in `docker-compose.yml`, so the
