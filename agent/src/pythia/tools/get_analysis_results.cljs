@@ -24,7 +24,7 @@
                    :enum ["pathway" "characterization" "incidenceRate"]
                    :description "Which kind of analysis to read. REQUIRED."}
     :analysisId {:type "number" :description "Saved analysis id. REQUIRED."}
-    :sourceKey {:type "string" :description "Source key (e.g. 'EUNOMIA'). Defaults to the session source."}
+    :sourceKey {:type "string" :description "Optional source key. Defaults to the session source."}
     :topN {:type "number" :description "How many top pathways to return (default 8)."}}
    :required ["analysisType" "analysisId"]})
 

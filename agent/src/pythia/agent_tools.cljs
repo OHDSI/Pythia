@@ -17,21 +17,50 @@
    expect (same shape entry.cljs built pre-port), reading every JS
    boundary field with `unchecked-get` (:advanced rename safety)."
   (:require ["eve/tools" :refer [defineTool]]
-            [pythia.tools :as tools]))
+            [pythia.tools :as tools]
+            [pythia.webapi :as webapi]))
+
+(def ^:private last-resort-source-key
+  "Used only when the request names no source and WebAPI reports none."
+  "EUNOMIA")
+
+(defn resolve-source-key
+  "Promise of the source key a tool should run against: the one the host
+   sent with the request, else WebAPI's priority vocabulary source, else the
+   first source WebAPI lists, else `last-resort-source-key`. Hosts only send
+   a source when the user picked one, so without this lookup every tool fell
+   back to a hard-coded key whether or not that source exists."
+  [source-key auth]
+  (if (seq source-key)
+    (js/Promise.resolve source-key)
+    (-> (webapi/request "GET" "/source/priorityVocabulary" {:auth auth})
+        (.then (fn [priority]
+                 (or (not-empty (:sourceKey priority))
+                     (-> (webapi/request "GET" "/source/sources" {:auth auth})
+                         (.then (fn [sources]
+                                  (or (some (comp not-empty :sourceKey) sources)
+                                      last-resort-source-key))))))))))
 
 (defn- ->tool-ctx
   "Rebuild the legacy per-request ctx {:auth :source-key :plan} from the
-   eve ToolContext JS object. :auth re-adds the \"Bearer \" prefix eve
-   strips off; :source-key defaults to \"EUNOMIA\"; :plan is keywordized
-   from ToolContext.metadata.plan."
-  [^js ctx-js]
+   eve ToolContext JS object and the resolved source key. :auth re-adds the
+   \"Bearer \" prefix eve strips off; :plan is keywordized from
+   ToolContext.metadata.plan."
+  [^js ctx-js source-key]
   (let [bearer (unchecked-get ctx-js "bearerToken")
         metadata (unchecked-get ctx-js "metadata")
-        source-key (and metadata (unchecked-get metadata "sourceKey"))
         plan (and metadata (unchecked-get metadata "plan"))]
     {:auth (when bearer (str "Bearer " bearer))
-     :source-key (or source-key "EUNOMIA")
+     :source-key source-key
      :plan (when plan (js->clj plan :keywordize-keys true))}))
+
+(defn- request-source-key [^js ctx-js]
+  (let [metadata (unchecked-get ctx-js "metadata")]
+    (and metadata (unchecked-get metadata "sourceKey"))))
+
+(defn- request-auth [^js ctx-js]
+  (when-let [bearer (unchecked-get ctx-js "bearerToken")]
+    (str "Bearer " bearer)))
 
 (defn ->eve-tool
   "Build one eve tool def from a plain CLJS tool map. Server tools
@@ -45,9 +74,10 @@
      #js {:description description
           :inputSchema (clj->js schema)
           :execute (fn [input ctx-js]
-                     (-> (js/Promise.resolve
-                          (run (js->clj input :keywordize-keys true)
-                               (->tool-ctx ctx-js)))
+                     (-> (resolve-source-key (request-source-key ctx-js) (request-auth ctx-js))
+                         (.then (fn [source-key]
+                                  (run (js->clj input :keywordize-keys true)
+                                       (->tool-ctx ctx-js source-key))))
                          (.then clj->js)))}
      #js {:description description
           :inputSchema (clj->js schema)
