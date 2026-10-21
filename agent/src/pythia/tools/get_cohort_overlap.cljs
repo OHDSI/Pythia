@@ -1,9 +1,11 @@
 (ns pythia.tools.get-cohort-overlap
   "get_cohort_overlap tool — pulls per-pair overlap counts between two or more
    generated cohorts. Port of the JVM trexsql.agent.tools.get-cohort-overlap.
-   WebAPI endpoint: GET /cohortdefinition/{id}/report/{sourceKey}"
+   WebAPI endpoint: GET /cohortdefinition/{id}/info (person count per source;
+   WebAPI 3 exposes no pairwise intersection)."
   (:require [clojure.string :as str]
-            [pythia.webapi :as webapi]))
+            [pythia.webapi :as webapi]
+            [pythia.tools.sources :as sources]))
 
 (def schema
   {:type "object"
@@ -22,6 +24,14 @@
       (:personCount report)
       (some-> report :summary :persons)))
 
+(defn- generation-on
+  "The cohort's completed generation on `source-key` from /info, or nil."
+  [info source-key key-by-id]
+  (some #(when (and (= "COMPLETE" (str (:status %)))
+                    (= source-key (get key-by-id (get-in % [:id :sourceId]))))
+           %)
+        (when (sequential? info) info)))
+
 (defn run [args ctx]
   (let [ids (->> (or (:cohortIds args) [])
                  (map parse-id)
@@ -32,17 +42,20 @@
         auth (:auth ctx)]
     (if (< (count ids) 2)
       (js/Promise.resolve {:error "cohortIds must contain at least 2 distinct ids"})
-      (-> (js/Promise.all
-           (clj->js
-            (for [id ids]
-              (-> (webapi/request "GET" (str "/cohortdefinition/" id "/report/" source-key) {:auth auth})
-                  (.then (fn [body] #js [id body]))))))
+      (-> (sources/key-by-id auth)
+          (.then
+           (fn [key-by-id]
+             (js/Promise.all
+              (clj->js
+               (for [id ids]
+                 (-> (webapi/request "GET" (str "/cohortdefinition/" id "/info") {:auth auth})
+                     (.then (fn [info] #js [id (generation-on info source-key key-by-id)]))))))))
           (.then
            (fn [pairs]
              (let [reports (into {} (map (fn [p] [(aget p 0) (aget p 1)])) pairs)
                    missing (->> reports (filter (comp nil? val)) (mapv key))]
                (if (seq missing)
-                 {:error (str "no report found for cohort id(s) " (str/join "," missing)
+                 {:error (str "no completed generation for cohort id(s) " (str/join "," missing)
                               " on source " source-key " — generate first")}
                  (let [counts (into {} (for [[id r] reports] [id (pop-count r)]))
                        pairs* (for [a ids b ids :when (< a b)] [a b])
@@ -59,7 +72,7 @@
                              :cohortB b :cohortBPersons nb
                              :overlap overlap
                              :note (cond
-                                     (nil? overlap) "WebAPI version doesn't expose overlap in this report shape; query Atlas overlap UI for exact intersection."
+                                     (nil? overlap) "WebAPI does not expose the intersection of two cohorts; compare the person counts only."
                                      (and na overlap (zero? na)) "cohort A is empty"
                                      (and na overlap (>= overlap (* 0.95 na)))
                                      "near-total overlap — these cohorts may be redundant"

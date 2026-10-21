@@ -4,7 +4,8 @@
    trexsql.agent.tools.get-cohort-generation-summary.
    WebAPI endpoint: GET /cohortdefinition/{id}/info"
   (:require [clojure.string :as str]
-            [pythia.webapi :as webapi]))
+            [pythia.webapi :as webapi]
+            [pythia.tools.sources :as sources]))
 
 (def schema
   {:type "object"
@@ -17,13 +18,19 @@
         (string? raw) (let [n (js/parseInt (str/trim raw) 10)] (when-not (js/isNaN n) n))
         :else nil))
 
-(defn- summarize-info [info source-key]
+(defn- info-source-key
+  "WebAPI 3 names the source only by id ({:id {:sourceId}}); older shapes carry the key."
+  [entry key-by-id]
+  (or (:sourceKey entry)
+      (get-in entry [:source :sourceKey])
+      (get key-by-id (get-in entry [:id :sourceId]))))
+
+(defn- summarize-info [info source-key key-by-id]
   (let [arr (when (sequential? info) info)
-        match (or (some #(when (= source-key (or (:sourceKey %) (get-in % [:source :sourceKey]))) %)
-                        arr)
-                  (first arr))]
+        match (or (some #(when (= source-key (info-source-key % key-by-id)) %) arr)
+                  (when (= 1 (count arr)) (first arr)))]
     (when match
-      {:source-key (or (:sourceKey match) (get-in match [:source :sourceKey]))
+      {:source-key (info-source-key match key-by-id)
        :status (or (:status match) (:executionStatus match))
        :start-time (or (:startTime match) (:startDate match))
        :end-time (or (:endTime match) (:endDate match))
@@ -39,17 +46,19 @@
         auth (:auth ctx)]
     (if (nil? cohort-id)
       (js/Promise.resolve {:error "cohortId is required (numeric)"})
-      (-> (webapi/request "GET" (str "/cohortdefinition/" cohort-id "/info") {:auth auth})
+      (-> (js/Promise.all
+           #js [(webapi/request "GET" (str "/cohortdefinition/" cohort-id "/info") {:auth auth})
+                (sources/key-by-id auth)])
           (.then
-           (fn [info]
-             (let [summary (summarize-info info source-key)]
+           (fn [[info key-by-id]]
+             (let [summary (summarize-info info source-key key-by-id)]
                (cond
                  (nil? info)
                  {:error (str "WebAPI returned no /cohortdefinition/" cohort-id "/info")}
 
                  (nil? summary)
                  {:cohortId cohort-id :note (str "no generation found for source " source-key)
-                  :sources (mapv #(or (:sourceKey %) (get-in % [:source :sourceKey])) info)}
+                  :sources (mapv #(info-source-key % key-by-id) info)}
 
                  :else
                  {:cohortId cohort-id

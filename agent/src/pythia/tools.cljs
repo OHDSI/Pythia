@@ -14,6 +14,8 @@
             [pythia.tools.get-analysis-results :as get-analysis-results]
             [pythia.tools.summarise-attrition :as summarise-attrition]
             [pythia.tools.get-cohort-overlap :as get-cohort-overlap]
+            [pythia.tools.get-cohort-samples :as get-cohort-samples]
+            [pythia.tools.get-person-profile :as get-person-profile]
             [pythia.tools.draft-concept-set-spec :as draft-concept-set-spec]
             [pythia.tools.search-ohdsi-studies :as search-ohdsi-studies]
             [pythia.tools.web-search :as web-search]
@@ -42,6 +44,8 @@
    get-analysis-results/tool
    summarise-attrition/tool
    get-cohort-overlap/tool
+   get-cohort-samples/tool
+   get-person-profile/tool
    draft-concept-set-spec/tool
    search-ohdsi-studies/tool
    web-search/tool
