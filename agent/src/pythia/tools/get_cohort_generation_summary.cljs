@@ -9,7 +9,7 @@
 (def schema
   {:type "object"
    :properties {:cohortId  {:type "number" :description "Saved cohort id from search_existing_cohorts."}
-                :sourceKey {:type "string" :description "Optional source key (e.g. 'EUNOMIA'). Defaults to the chat session's source."}}
+                :sourceKey {:type "string" :description "Optional source key. Defaults to the chat session's source."}}
    :required ["cohortId"]})
 
 (defn- parse-id [raw]
