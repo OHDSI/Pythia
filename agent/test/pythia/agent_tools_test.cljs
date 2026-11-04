@@ -1,6 +1,6 @@
 (ns pythia.agent-tools-test
   "Tests for the eve `defineTool` adapter: pythia.agent-tools/tools must
-   expose all 55 pythia.tools/all entries as eve tool defs, and the
+   expose all 57 pythia.tools/all entries as eve tool defs, and the
    per-tool builder must rebuild the legacy {:auth :source-key :plan} ctx
    from the trex ToolContext shape {bearerToken sessionId metadata}."
   (:require [cljs.test :refer [deftest is testing async]]
@@ -27,9 +27,9 @@
     (-> ((unchecked-get (agent-tools/->eve-tool m) "execute") #js {} ctx)
         (.then #(unchecked-get % "sk")))))
 
-(deftest exposes-all-55-tools
+(deftest exposes-all-57-tools
   (let [names (js/Object.keys agent-tools/tools)]
-    (is (= 55 (count names)))
+    (is (= 57 (count names)))
     (doseq [n names]
       (is (true? (unchecked-get (unchecked-get agent-tools/tools n) "__trexTool"))
           (str n " must be branded __trexTool by defineTool")))))

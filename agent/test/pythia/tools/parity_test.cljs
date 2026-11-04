@@ -19,6 +19,8 @@
   #{"save_cohort" "select_plan_template" "review_plan" "review_artifact"
     ;; run a saved analysis, and read what it produced
     "generate_analysis" "get_analysis_results"
+    ;; the cohort Samples tab and the patient profile
+    "get_cohort_samples" "get_person_profile"
     ;; undo part of a cohort without rebuilding the whole definition
     "remove_inclusion_rule" "remove_entry_event"
     ;; reuse a concept set the user already curated
@@ -86,7 +88,7 @@
       (is (empty? (set/difference jvm-tool-names exposed))
           (str "missing CLJS names: " (set/difference jvm-tool-names exposed))))
     (is (= expected exposed))
-    (is (= 55 (count exposed)))))
+    (is (= 57 (count exposed)))))
 
 (deftest no-duplicate-names
   (let [names (map :name tools/all)]

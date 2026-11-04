@@ -562,12 +562,22 @@ describe('buildAgentRequestBody (frontend -> agent backend context/plan wiring)'
     expect(body.metadata?.context).toEqual({
       route: 'cohort-edit',
       artifact: { kind: 'cohort', id: 42, name: 'T2DM' },
+      params: { id: 42 },
     })
+  })
+
+  it('passes route params through so the agent knows which profile is open', () => {
+    const body = buildAgentRequestBody(null, {
+      routeName: 'profile-view-cohort',
+      routeParams: { sourceKey: 'SYNPUF', personId: '11188', cohortId: '20' },
+      artifact: null,
+    }, null)
+    expect(body.metadata?.context?.params).toEqual({ sourceKey: 'SYNPUF', personId: '11188', cohortId: '20' })
   })
 
   it('maps a null artifact through to context.artifact: null', () => {
     const body = buildAgentRequestBody(null, { routeName: 'cohorts', routeParams: {}, artifact: null }, null)
-    expect(body.metadata?.context).toEqual({ route: 'cohorts', artifact: null })
+    expect(body.metadata?.context).toEqual({ route: 'cohorts', artifact: null, params: {} })
   })
 
   it('translates camelCase artifact kinds to the backend snake_case enum', () => {

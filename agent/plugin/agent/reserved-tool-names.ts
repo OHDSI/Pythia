@@ -21,6 +21,8 @@ export const RESERVED_TOOL_NAMES: readonly string[] = [
   "get_artifact",
   "get_cohort_generation_summary",
   "get_cohort_overlap",
+  "get_cohort_samples",
+  "get_person_profile",
   "get_reference_phenotype",
   "navigate_to",
   "phenotype_patterns",

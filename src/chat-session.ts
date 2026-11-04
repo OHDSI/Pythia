@@ -806,7 +806,11 @@ export interface AgentPlanPayload {
 
 export interface AgentRequestMetadata {
   sourceKey: string | null
-  context: { route: string; artifact: { kind: string; id: number | string; name: string } | null } | null
+  context: {
+    route: string
+    artifact: { kind: string; id: number | string; name: string } | null
+    params: Record<string, string | number>
+  } | null
   plan: AgentPlanPayload | null
   clientTools?: { version: 1; tools: BrowserToolDescriptor[] }
 }
@@ -816,7 +820,7 @@ export interface AgentRequestBody {
 }
 
 // Shapes the request body the trex agents plugin runtime expects
-// (`metadata: {sourceKey, context: {route, artifact}, plan}`) from the
+// (`metadata: {sourceKey, context: {route, artifact, params}, plan}`) from the
 // client-side refs that already exist for other purposes (routeContext
 // drives navigate_to undo; activePlan drives the plan card). Exported and
 // pure so it's testable without constructing a Chat instance.
@@ -848,6 +852,9 @@ export function buildAgentRequestBody(
                   name: routeContext.artifact.name,
                 }
               : null,
+            // Route params name what an artifact summary cannot, e.g. the
+            // person and source of an open patient profile.
+            params: routeContext.routeParams ?? {},
           }
         : null,
       plan: plan
