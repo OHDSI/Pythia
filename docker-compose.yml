@@ -175,7 +175,10 @@ services:
       # mount (e.g. /data) breaks the trexas worker so the node never boots.
       TREXSQL_CACHE_PATH: /tmp/trexsql-cache
       # --- Pythia / trex agents runtime ---
-      AWS_REGION: us-east-1
+      # Provider credentials (ANTHROPIC_API_KEY, AZURE_*, ANTHROPIC_FOUNDRY_*,
+      # GOOGLE_VERTEX_*, AWS_*) reach trex from ./.env via env_file above; see the
+      # README's "Choosing the model".
+      AWS_REGION: ${AWS_REGION:-us-east-1}
       # BAO_AGENT_MODEL kept as the operator-facing var name; TREX_AGENTS_DEFAULT_MODEL
       # is what the trex agents runtime actually reads. BAO_AGENT_MODEL_SPEC lets an
       # operator supply a fully-qualified `<provider>/<modelId>` spec when the model
@@ -186,9 +189,13 @@ services:
       # Responses API, so `bedrock/...` can't reach them. Point trex's openai-compatible
       # provider at mantle instead and select the model with
       #   BAO_AGENT_MODEL_SPEC=openai/openai.gpt-5.6-luna
-      # The Bedrock long-term API key doubles as the OpenAI-style bearer token.
+      # The Bedrock long-term API key doubles as the OpenAI-style bearer token
+      # unless OPENAI_API_KEY is set. For the OpenAI API itself, set OPENAI_API_KEY
+      # and OPENAI_BASE_URL=https://api.openai.com/v1 (or, with a trex that has the
+      # bedrock-openai provider, use BAO_AGENT_MODEL_SPEC=bedrock-openai/... for
+      # mantle and leave OPENAI_* for OpenAI).
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://bedrock-mantle.${AWS_REGION:-us-east-1}.api.aws/openai/v1}
-      OPENAI_API_KEY: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-${AWS_BEARER_TOKEN_BEDROCK:-}}
       # AWS_BEARER_TOKEN_BEDROCK comes from ./.env via env_file above.
     healthcheck:
       test:
