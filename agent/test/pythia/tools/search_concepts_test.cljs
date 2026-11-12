@@ -61,3 +61,40 @@
                      (is (= "/vocabulary/EUNOMIA/search" (:path @recorded)))
                      (restore)
                      (done))))))))
+
+(deftest ingredient-ranks-above-products-the-vocabulary-lists-first
+  ;; A full vocabulary returns thousands of rows for "lisinopril" with the
+  ;; ingredient thousands of rows down; cutting to 15 before ranking left
+  ;; only packaged products, so the agent concluded the ingredient was absent.
+  (async done
+    (with-mock-request
+      (conj (vec (for [i (range 20)]
+                   {:CONCEPT_ID (+ 21000000 i) :CONCEPT_NAME (str "lisinopril " (* 5 (inc i)) " MG Oral Tablet [Box of 10]")
+                    :DOMAIN_ID "Drug" :VOCABULARY_ID "RxNorm" :CONCEPT_CLASS_ID "Quant Clinical Drug" :STANDARD_CONCEPT "S"}))
+            {:CONCEPT_ID 1308216 :CONCEPT_NAME "lisinopril" :DOMAIN_ID "Drug"
+             :VOCABULARY_ID "RxNorm" :CONCEPT_CLASS_ID "Ingredient" :STANDARD_CONCEPT "S"})
+      (fn [_ restore]
+        (-> ((:run sc/tool) {:query "lisinopril"} {:source-key "SYNPUF5" :auth "Bearer xyz"})
+            (.then (fn [out]
+                     (is (= 1308216 (:conceptId (first (:results out)))))
+                     (is (= "Ingredient" (:conceptClass (first (:results out)))))
+                     (is (= :high (:confidence (first (:results out)))))
+                     (is (<= (count (:results out)) 15))
+                     (restore)
+                     (done))))))))
+
+(deftest name-matches-rank-above-other-standard-hits
+  (async done
+    (with-mock-request
+      [{:CONCEPT_ID 1 :CONCEPT_NAME "Hypertensive heart disease" :DOMAIN_ID "Condition"
+        :VOCABULARY_ID "SNOMED" :CONCEPT_CLASS_ID "Clinical Finding" :STANDARD_CONCEPT "S"}
+       {:CONCEPT_ID 2 :CONCEPT_NAME "Complication of hypertension" :DOMAIN_ID "Condition"
+        :VOCABULARY_ID "SNOMED" :CONCEPT_CLASS_ID "Clinical Finding" :STANDARD_CONCEPT "S"}
+       {:CONCEPT_ID 316866 :CONCEPT_NAME "Hypertensive disorder" :DOMAIN_ID "Condition"
+        :VOCABULARY_ID "SNOMED" :CONCEPT_CLASS_ID "Clinical Finding" :STANDARD_CONCEPT "S"}]
+      (fn [_ restore]
+        (-> ((:run sc/tool) {:query "hypertensive disorder"} {:source-key "SYNPUF5" :auth "Bearer xyz"})
+            (.then (fn [out]
+                     (is (= [316866 1 2] (mapv :conceptId (:results out))))
+                     (restore)
+                     (done))))))))
