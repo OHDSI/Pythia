@@ -63,10 +63,25 @@ services:
     platform: linux/amd64
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mypass}
+    # The image ships an initialised data directory, so postgres ignores
+    # POSTGRES_PASSWORD and keeps the baked-in one, and WebAPI (which logs in with
+    # POSTGRES_PASSWORD) fails as soon as .env sets anything else. Set it on every
+    # start over the local socket, which the image trusts.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        docker-entrypoint.sh postgres &
+        pid=$$!
+        trap 'kill -TERM $$pid; wait $$pid' TERM INT
+        until pg_isready -q -U postgres; do sleep 1; done
+        echo "ALTER USER postgres PASSWORD :'pw';" | psql -q -U postgres -v pw="$$POSTGRES_PASSWORD"
+        wait $$pid
     volumes:
       - atlas3-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # Through the container's own address, not localhost: pg_hba trusts
+      # localhost, so only this proves the password WebAPI uses is in place.
+      test: ["CMD-SHELL", "PGPASSWORD=\"$$POSTGRES_PASSWORD\" psql -h broadsea-atlasdb -U postgres -d postgres -tAc 'select 1' >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -94,7 +109,17 @@ services:
         required: false
       - path: ./.env
         required: false
+    # Compose reads env_file when it loads the project, before trex-init has
+    # written ./secrets, so on a fresh checkout the env_file entries above are
+    # empty and trex refuses to start without TREX_ROOT_KEY. Load the files the
+    # init step just wrote at container start instead.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - set -a; for f in /shared/root.env /shared/derived.env; do [ -f "$$f" ] && . "$$f"; done; set +a; exec /usr/src/entrypoint.sh "$$@"
+      - trex
     volumes:
+      - ./secrets:/shared:ro
       - trex-claude-config:/home/node/.claude
       - trex-gh-config:/home/node/.config/gh
       # Pythia agent (ClojureScript) as a mounted Deno function.
