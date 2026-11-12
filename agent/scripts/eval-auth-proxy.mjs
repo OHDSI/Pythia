@@ -16,6 +16,10 @@ const PORT = Number(process.env.EVAL_PROXY_PORT || 8901);
 const UPSTREAM = process.env.EVAL_PROXY_UPSTREAM ||
   "http://localhost:8001/plugins/ohdsi/pythia";
 const APIKEY = process.env.EVAL_PROXY_APIKEY;
+// Pythia forwards the caller's bearer to WebAPI on every vocabulary and
+// artifact call. eve sends none, so without this WebAPI answers 403 and every
+// concept search comes back empty.
+const BEARER = process.env.EVAL_PROXY_BEARER;
 
 if (!APIKEY) {
   console.error(
@@ -49,6 +53,7 @@ const server = http.createServer((req, res) => {
     host: upstreamUrl.host,
     apikey: APIKEY,
   };
+  if (BEARER && !headers.authorization) headers.authorization = `Bearer ${BEARER}`;
 
   let upstreamRes;
 

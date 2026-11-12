@@ -71,7 +71,15 @@ if ! curl -sf --max-time 10 -H "apikey: $KEY" "$DIRECT_URL/eve/v1/health" >/dev/
 fi
 
 EVAL_PROXY_PORT="${EVAL_PROXY_PORT:-8901}"
-EVAL_PROXY_UPSTREAM="$DIRECT_URL" EVAL_PROXY_APIKEY="$KEY" EVAL_PROXY_PORT="$EVAL_PROXY_PORT" \
+# WebAPI login for the agent's vocabulary calls; the stack seeds admin/admin.
+BEARER="$(curl -sf --max-time 20 -X POST "${PYTHIA_EVAL_WEBAPI_URL:-http://localhost:8080/WebAPI}/user/login/db" \
+  --data-urlencode "login=${PYTHIA_EVAL_WEBAPI_USER:-admin}" --data-urlencode "password=${PYTHIA_EVAL_WEBAPI_PASSWORD:-admin}" \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).jwt||"")}catch{}})' || true)"
+if [ -z "$BEARER" ]; then
+  echo "could not log in to WebAPI; vocabulary searches will be denied and concept evals will fail" >&2
+fi
+
+EVAL_PROXY_BEARER="$BEARER" EVAL_PROXY_UPSTREAM="$DIRECT_URL" EVAL_PROXY_APIKEY="$KEY" EVAL_PROXY_PORT="$EVAL_PROXY_PORT" \
   node ../scripts/eval-auth-proxy.mjs &
 PID=$!
 trap 'kill "$PID" 2>/dev/null || true' EXIT
