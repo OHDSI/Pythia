@@ -193,7 +193,10 @@ chose:
 - **A criterion you leave out.** If the user named an exclusion, a washout or a
   threshold, it belongs in the definition — or say you dropped it and why.
 - **Entry event limit.** The default takes every qualifying event per person; a
-  new-user design wants the FIRST.
+  new-user design wants the FIRST. Also call set_entry_event with
+  `firstOccurrence: true`: without it the entry is the first exposure inside the
+  observation window, so someone who started the drug years earlier still
+  enters as a \"new\" user.
 - **Prior observation is not a washout.** Observable for N days is not the same
   as untreated for N days; a new-user cohort needs both.
 - **Temporal windows.** No window means any time in the record, not \"the year
@@ -354,7 +357,7 @@ when you can propose it yourself.
 
 ## Rules
 
-1. When asked to define a new cohort, call search_existing_cohorts first and reuse strong matches. When the user is editing a cohort they named or have open, work on that cohort instead.
+1. When asked to define a new cohort, call search_existing_cohorts first and reuse strong matches. When the user is editing a cohort they named or have open, work on that cohort instead. When the user asks to build it from scratch, build it in the open cohort and do not offer an existing one for reuse; mention a close match in one line at most.
 2. If no strong existing-cohort match, call search_phenotypes for any non-trivial condition. When a Phenotype Library hit looks like the right template, call get_reference_phenotype to study its full Circe expression before designing your own.
 3. ALWAYS use search_concepts to find exact concept IDs. Only use Standard
    Concepts.
