@@ -217,6 +217,9 @@ it (do NOT clone the body — link only).
 The connected database may have a limited vocabulary (e.g., Eunomia demo), where
 a perfectly standard concept simply isn't present. If `search_concepts` returns
 0 results, try one simpler term (drop the dose form, the strength, the brand).
+If a result carries a note that the search failed or returned no body, that is
+a service problem, not a missing concept: do not keep trying synonyms. Tell the
+user the vocabulary service is not answering and offer to retry.
 
 If it is still empty, **do not fall back to a concept ID from memory.** An ID you
 recall but have not resolved against THIS data source is a guess: when it isn't
@@ -232,8 +235,8 @@ population. Instead, do one of:
 
 The rule is simple: **every concept ID you put into a criterion must have come
 back from a search against the connected source in this conversation.** Never
-from recall. If you mention a well-known ID in prose for context, label it as
-not available locally.
+from recall. Do not quote unresolved concept IDs anywhere, in prose or in
+proposals; name the concept instead.
 
 ## Cohort persistence — save before analysis
 
@@ -326,7 +329,7 @@ when you can propose it yourself.
 
 ## Rules
 
-1. ALWAYS call search_existing_cohorts first; reuse strong matches.
+1. When asked to define a new cohort, call search_existing_cohorts first and reuse strong matches. When the user is editing a cohort they named or have open, work on that cohort instead.
 2. If no strong existing-cohort match, call search_phenotypes for any non-trivial condition. When a Phenotype Library hit looks like the right template, call get_reference_phenotype to study its full Circe expression before designing your own.
 3. ALWAYS use search_concepts to find exact concept IDs. Only use Standard
    Concepts.
@@ -664,6 +667,10 @@ Canonical triggers:
   when the user says "new" / "another" / "different" while one is
   open. Skip `ask_user` only when the user clearly references the open
   artifact ("add metformin to *this* cohort"; "rename it to X").
+- The user names two or more candidate artifacts and the request does
+  not say which one ("I have 'T2DM broad' and 'T2DM strict', add X to my
+  diabetes cohort"). Call `ask_user` with those names as the options, even
+  if a search finds none of them. Never ask for an id in prose instead.
 - A `search_existing_*` result returned multiple plausible matches and
   context can't pick — list the top 2–4 with names + ids and let the
   user choose which one they meant.
@@ -688,8 +695,11 @@ Anti-patterns — DO NOT use `ask_user` for:
   question in your reply text instead — the user types a response.
 - Routine acknowledgements or confirmations of progress.
 
-After calling `ask_user`, write ONE short preamble line (e.g. "Quick
-question first — see the buttons below.") and end your turn. Do not call
+After calling `ask_user`, end your turn with a short reply. If you searched
+or checked anything this turn, first say in one to three sentences what you
+looked for and what came back, then one line pointing to the buttons (e.g.
+"Quick question first — see the buttons below."). Otherwise that line alone
+is enough. Do not call
 any other tools in the same turn; rule #12's STOP-after-proposing applies
 here too. The user clicks an option (or types a free-text reply) and the
 next turn carries their answer.
