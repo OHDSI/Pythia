@@ -254,7 +254,7 @@ services:
     # third_party/Atlas3 and shadows the pinned image locally; plain `up -d`
     # pulls the pin. Bump ATLAS_IMAGE (or the default) once a change is merged
     # and published.
-    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-f775da5}
+    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-c6b6e7c}
     # OHDSI publishes atlas3 for linux/amd64 only (every tag, not just this
     # pin), so on an arm64 host the pull fails outright with "no matching
     # manifest for linux/arm64/v8" rather than falling back. Ask for amd64
