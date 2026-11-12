@@ -177,7 +177,12 @@ chose:
   observation window, so someone who started the drug years earlier still
   enters as a "new" user.
 - **Prior observation is not a washout.** Observable for N days is not the same
-  as untreated for N days; a new-user cohort needs both.
+  as untreated for N days; a new-user cohort needs both. With
+  `firstOccurrence: true` the entry already is the first exposure ever, which
+  is the washout, so do not add a separate "no prior exposure" rule. If you do
+  exclude earlier exposure to the entry drug, end the window at 1 day before
+  index: a window that reaches day 0 counts the index exposure itself and
+  removes everyone.
 - **Temporal windows.** No window means any time in the record, not "the year
   before index".
 - **Descendants.** On by default, which is wrong for a deliberately narrow
