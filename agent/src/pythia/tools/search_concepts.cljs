@@ -22,9 +22,31 @@
 (defn- standard-concept? [row]
   (= "S" (str (or (:STANDARD_CONCEPT row) (:standardConcept row)))))
 
+(def ^:private class-rank
+  {"Ingredient" 0 "Clinical Drug Form" 2 "Branded Drug Form" 3 "Clinical Drug Comp" 3
+   "Clinical Drug" 4 "Branded Drug" 5 "Quant Clinical Drug" 6 "Quant Branded Drug" 7
+   "Clinical Pack" 8 "Branded Pack" 8 "Clinical Pack Box" 9 "Branded Pack Box" 9})
+
+(defn- relevance
+  "Sort key for a standard row against the query. WebAPI returns matches in
+   no useful order, and a full vocabulary has thousands of them: for
+   \"lisinopril\" the ingredient comes thousands of rows after its packaged
+   products, so cutting to the first 15 dropped it entirely."
+  [query row]
+  (let [q (str/lower-case (str/trim (str query)))
+        name (str/lower-case (str (or (:CONCEPT_NAME row) (:conceptName row))))
+        cls (or (:CONCEPT_CLASS_ID row) (:conceptClassId row))]
+    [(cond (= name q) 0
+           (str/starts-with? name q) 1
+           (str/includes? name q) 2
+           :else 3)
+     (get class-rank cls 1)
+     (count name)]))
+
 (defn- to-result [row]
   {:conceptId   (or (:CONCEPT_ID row) (:conceptId row))
    :conceptName (or (:CONCEPT_NAME row) (:conceptName row))
+   :conceptClass (or (:CONCEPT_CLASS_ID row) (:conceptClassId row))
    :domain      (or (:DOMAIN_ID row) (:domainId row))
    :vocabulary  (or (:VOCABULARY_ID row) (:vocabularyId row))
    :standard    (or (:STANDARD_CONCEPT row) (:standardConcept row))
@@ -115,6 +137,7 @@
                      {:results [] :note (str "WebAPI vocabulary search returned no body for source " source-key)}
                      (let [filtered (->> raw
                                          (filter standard-concept?)
+                                         (sort-by #(relevance query %))
                                          (take max-results)
                                          (map to-result)
                                          vec)
