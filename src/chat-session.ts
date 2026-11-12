@@ -96,6 +96,7 @@ interface CapabilityApplyResult {
   kind?: string
   id?: number | string
   name?: string
+  error?: string
 }
 
 // Delegates translation+apply to ATLAS's `capability.apply` bus handler
@@ -619,7 +620,7 @@ export function resolveProposal(
   toolCallId: string,
   decision: 'accepted' | 'rejected',
   deps: ProposalResolver,
-  result?: { id?: number | string; name?: string }
+  result?: { id?: number | string; name?: string; failed?: boolean; error?: string }
 ): void {
   const p = proposals.value[toolCallId]
   if (!p) return
@@ -629,8 +630,22 @@ export function resolveProposal(
   // first: a resolved tool call left marked 'pending' would be resolved a
   // second time by dismissPendingProposals on the next typed message.
   p.status = decision
-  const savedBits =
-    decision === 'accepted' && result && result.id != null
+  // Without this the model heard "accepted" for a save WebAPI had refused, and
+  // went looking for an existing artifact with the same name, which in a shared
+  // instance belongs to someone else.
+  const failedBits =
+    decision === 'accepted' && result?.failed
+      ? {
+          applied: false,
+          error: result.error ?? 'ATLAS could not apply this change.',
+          instruction:
+            `The user accepted, but ATLAS could not apply it: ${result.error ?? 'no reason given'}. ` +
+            'Do not assume it took effect, and do not adopt an existing artifact found by name in its place; ' +
+            'it may belong to someone else. Fix the cause and propose the step again, or tell the user what went wrong.',
+        }
+      : null
+  const savedBits = failedBits ??
+    (decision === 'accepted' && result && result.id != null
       ? {
           savedId: result.id,
           savedName: result.name,
@@ -644,7 +659,7 @@ export function resolveProposal(
             decision === 'accepted'
               ? 'The user accepted your proposal. Continue your turn — propose the next step or summarise.'
               : 'The user rejected your proposal. Ask one clarifying question or propose an alternative; do not re-propose the same thing.',
-        }
+        })
   markUserDecided()
   deps.addToolResult({
     tool: p.toolName,
@@ -707,7 +722,7 @@ export async function acceptProposal(
   const p = proposals.value[toolCallId]
   if (!p) return
   p.status = 'accepted'
-  let result: { id?: number | string; name?: string } | undefined
+  let result: { id?: number | string; name?: string; failed?: boolean; error?: string } | undefined
   if (_hostBus) {
     try {
       const applied = await _hostBus.request<CapabilityApplyResult>('capability.apply', {
@@ -717,6 +732,8 @@ export async function acceptProposal(
       if (applied?.applied) {
         result = { id: applied.id, name: applied.name }
         if (applied.kind) markStepProgress(applied.kind, 'done')
+      } else if (applied?.applied === false) {
+        result = { failed: true, error: applied.error }
       }
     } catch {
       // capability.apply rejects after a 30s bus timeout (or if ATLAS's

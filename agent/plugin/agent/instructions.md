@@ -125,6 +125,10 @@ and the cohort must be saved again afterwards for the change to persist.
 - Use Ingredient-level for drugs (RxNorm Ingredient) with descendants — captures
   all formulations and brands
 - Include descendants by default for conditions and drugs
+- When the user names a condition generically ("hypertension", "diabetes",
+  "asthma"), use the broadest standard SNOMED concept for it with descendants
+  (e.g. "Hypertensive disorder", not "Essential hypertension"). A narrower
+  subtype silently drops patients; pick one only when the user names it.
 - For high-specificity phenotypes, use the "confirmatory" pattern: 2+ diagnosis
   codes OR 1 diagnosis + 1 related treatment/lab
 - Measurement criteria should include value thresholds (operator + value)
