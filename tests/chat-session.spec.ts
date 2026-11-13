@@ -656,6 +656,43 @@ describe('acceptProposal (shared accept pipeline)', () => {
     for (const k of Object.keys(proposals.value)) delete proposals.value[k]
   })
 
+  it('tells the model when ATLAS could not apply an accepted proposal', async () => {
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: false, kind: 'saveCohort', error: 'Failed to save cohort to server' })
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-fail', toolName: 'save_cohort', input: { name: 'Lisinopril users' } },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-fail', { addToolResult })
+
+    const output = addToolResult.mock.calls[0][0].output
+    expect(output).toMatchObject({ decision: 'accepted', applied: false, error: 'Failed to save cohort to server' })
+    expect(output.instruction).toContain('could not apply it: Failed to save cohort to server')
+    expect(output.instruction).toContain('do not adopt an existing artifact')
+    expect(output).not.toHaveProperty('savedId')
+  })
+
+  it('still reports a failure when ATLAS gives no reason', async () => {
+    const bus = fakeBus()
+    bus.request.mockResolvedValue({ applied: false })
+    setHostBridge({ bus, applyProposal: vi.fn() })
+    recordProposal(
+      { toolCallId: 'tc-acc-fail2', toolName: 'save_cohort', input: {} },
+      { addToolResult: () => {} }
+    )
+
+    const addToolResult = vi.fn()
+    await acceptProposal('tc-acc-fail2', { addToolResult })
+
+    expect(addToolResult.mock.calls[0][0].output).toMatchObject({
+      applied: false,
+      error: 'ATLAS could not apply this change.',
+    })
+  })
+
   it('delegates a non-ID-returning proposal to capability.apply and resolves accepted', async () => {
     const bus = fakeBus()
     bus.request.mockResolvedValue({ applied: true, kind: 'addInclusionRule' })

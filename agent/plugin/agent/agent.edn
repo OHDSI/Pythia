@@ -1,1 +1,4 @@
-{:max-steps 20}
+{:max-steps 20
+ ;; Bounds a degenerate generation: GPT-6 Luna once streamed 128k tokens in a
+ ;; single turn and the turn hung for 10 minutes. Normal turns use a few thousand.
+ :max-output-tokens 16000}

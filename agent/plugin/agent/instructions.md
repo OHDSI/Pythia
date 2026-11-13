@@ -125,6 +125,10 @@ and the cohort must be saved again afterwards for the change to persist.
 - Use Ingredient-level for drugs (RxNorm Ingredient) with descendants — captures
   all formulations and brands
 - Include descendants by default for conditions and drugs
+- When the user names a condition generically ("hypertension", "diabetes",
+  "asthma"), use the broadest standard SNOMED concept for it with descendants
+  (e.g. "Hypertensive disorder", not "Essential hypertension"). A narrower
+  subtype silently drops patients; pick one only when the user names it.
 - For high-specificity phenotypes, use the "confirmatory" pattern: 2+ diagnosis
   codes OR 1 diagnosis + 1 related treatment/lab
 - Measurement criteria should include value thresholds (operator + value)
@@ -173,7 +177,12 @@ chose:
   observation window, so someone who started the drug years earlier still
   enters as a "new" user.
 - **Prior observation is not a washout.** Observable for N days is not the same
-  as untreated for N days; a new-user cohort needs both.
+  as untreated for N days; a new-user cohort needs both. With
+  `firstOccurrence: true` the entry already is the first exposure ever, which
+  is the washout, so do not add a separate "no prior exposure" rule. If you do
+  exclude earlier exposure to the entry drug, end the window at 1 day before
+  index: a window that reaches day 0 counts the index exposure itself and
+  removes everyone.
 - **Temporal windows.** No window means any time in the record, not "the year
   before index".
 - **Descendants.** On by default, which is wrong for a deliberately narrow
