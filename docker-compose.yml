@@ -35,7 +35,7 @@ volumes:
 services:
   # One-shot: generates ./secrets/{root,derived}.env (trex crypto/JWT keys).
   trex-init:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:3aa00a6c00293477ad9e0e4c4e21d1448cd0acd04c682b284b13c5f5ef9d6ed2}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:dd2beb01db9300363236999f13531d3bca261858f02eb585a145bd87fc4e173a}
     entrypoint: /usr/local/bin/trex-init
     environment:
       TREX_SECRETS_DIR: /shared
@@ -92,7 +92,7 @@ services:
   # Single trex node. Hosts the embedded WebAPI on :8080, started by trex itself
   # at boot (see WEBAPI_NATIVE_ENABLED / the D2E_COMPAT note below).
   trex:
-    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:3aa00a6c00293477ad9e0e4c4e21d1448cd0acd04c682b284b13c5f5ef9d6ed2}
+    image: ${TREX_IMAGE:-ghcr.io/ohdsi/trexsql@sha256:dd2beb01db9300363236999f13531d3bca261858f02eb585a145bd87fc4e173a}
     ports:
       - "8000:8000"   # trexas TLS
       - "8001:8001"   # trexas HTTP
@@ -285,7 +285,7 @@ services:
     # third_party/Atlas3 and shadows the pinned image locally; plain `up -d`
     # pulls the pin. Bump ATLAS_IMAGE (or the default) once a change is merged
     # and published.
-    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-c6b6e7c}
+    image: ${ATLAS_IMAGE:-ghcr.io/ohdsi/atlas3:sha-ad2c8ee}
     # OHDSI publishes atlas3 for linux/amd64 only (every tag, not just this
     # pin), so on an arm64 host the pull fails outright with "no matching
     # manifest for linux/arm64/v8" rather than falling back. Ask for amd64
