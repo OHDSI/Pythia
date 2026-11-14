@@ -26,6 +26,7 @@ import {
   snapshotPlans,
 } from './plan-state'
 import type { GatedPlanPayload } from './plan-state'
+import { isAttachmentPart, stripAttachmentsForStorage } from './attachments'
 import {
   callBrowserTool,
   listBrowserTools,
@@ -427,6 +428,7 @@ function deriveTitle(messages: UIMessage[]): string {
     if (m.role === 'user') {
       const parts = (m.parts ?? []) as Array<{ type?: string; text?: string }>
       for (const p of parts) {
+        if (isAttachmentPart(p)) continue
         if (p.type === 'text' && typeof p.text === 'string' && p.text.trim()) {
           const t = p.text.trim().replace(/\s+/g, ' ')
           return t.length > 60 ? t.slice(0, 57) + '…' : t
@@ -463,7 +465,9 @@ function attachPersistence(chat: Chat<UIMessage>) {
     if (!id) return
     const snap = snapshotPlans()
     writeSession(id, {
-      messages: JSON.parse(JSON.stringify(chat.messages)) as UIMessage[],
+      // Attachment content is not kept: localStorage could not hold it, and
+      // files are meant to live only as long as the page.
+      messages: stripAttachmentsForStorage(JSON.parse(JSON.stringify(chat.messages)) as UIMessage[]),
       proposals: proposals.value,
       activePlan: snap.active,
       planHistory: snap.history,

@@ -27,6 +27,7 @@
     "ai": "^6.0.146",
     "dompurify": "^3.4.2",
     "marked": "^18.0.3",
+    "pdfjs-dist": "6.4.299",
     "vue": "^3.4.0"
   },
   "devDependencies": {
