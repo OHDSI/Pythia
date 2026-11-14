@@ -131,7 +131,10 @@
        (check "observation-window-set" (some? obs-window) "PrimaryCriteria.ObservationWindow")
        (check "inclusion-rules-present" (seq inclusion-rules)
               (str (count inclusion-rules) " inclusion rule(s) — informational, not all cohorts need them"))
-       (check "exit-strategy-set" (some? end-strategy) "EndStrategy (exit criteria)")
+       (check "exit-strategy-set" true
+              (if (some? end-strategy)
+                "EndStrategy (exit criteria)"
+                "no EndStrategy: the cohort ends at the end of observation (the Circe default), which is correct unless the user asked for another exit"))
        (check "all-concept-items-standard" (empty? non-standard)
               (if (seq non-standard)
                 (str "non-Standard concepts used: " (str/join ", " non-standard))
@@ -287,6 +290,20 @@
         goal (assoc :goal goal)
         success (assoc :success-criteria success)))))
 
+(defn cohort-expression
+  "GET /cohortdefinition/{id} returns the definition with :expression as a JSON
+   string. Reading the checks off that response directly found no entry event,
+   window or rules in any saved cohort, and the agent rebuilt cohorts that were
+   already complete. A bare expression (no :expression key) is returned as is;
+   unparseable JSON yields nil."
+  [body]
+  (let [e (:expression body)]
+    (cond
+      (string? e) (try (js->clj (js/JSON.parse e) :keywordize-keys true)
+                       (catch :default _ nil))
+      (map? e) e
+      :else body)))
+
 (defn checks-for
   "Kind-specific structural checks. Pure — exposed for direct testing."
   [kind body]
@@ -325,8 +342,15 @@
       (-> (webapi/request-status "GET" (path-fn id) {:auth auth})
           (.then (fn [{:keys [status body]}]
                    (cond
+                     (and (= 200 status) (= "cohort" kind) (nil? (cohort-expression body)))
+                     {:kind kind :id id :intent intent :artifact body
+                      :checks [(check "expression-readable" false
+                                      "the saved expression is not valid JSON, so nothing could be checked")]
+                      :instruction "Tell the user the saved cohort could not be read. Do not rebuild it."}
+
                      (= 200 status)
-                     (let [items (concept-items kind body)]
+                     (let [expr (if (= "cohort" kind) (cohort-expression body) body)
+                           items (concept-items kind expr)]
                        (-> (if (seq items)
                              (lookup-concepts source-key (distinct (map :id items)) auth)
                              (js/Promise.resolve nil))
@@ -334,7 +358,7 @@
                             (fn [found]
                               (cond-> {:kind kind :id id :intent intent
                                        :artifact body
-                                       :checks (cond-> (checks-for kind body)
+                                       :checks (cond-> (checks-for kind expr)
                                                  (seq items) (conj (vocabulary-check items found)))
                                        :instruction
                                        (str "Cross-reference :checks against `intent` plus your own clinical judgment — the checks catch structural absence, not wrong clinical logic."

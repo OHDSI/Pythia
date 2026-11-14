@@ -82,7 +82,8 @@
                    (let [by-id (checks-by-id out)]
                      (is (false? (:pass (get by-id "entry-event-present"))))
                      (is (false? (:pass (get by-id "observation-window-set"))))
-                     (is (false? (:pass (get by-id "exit-strategy-set"))))
+                     (is (true? (:pass (get by-id "exit-strategy-set"))))
+                     (is (re-find #"end of observation" (:detail (get by-id "exit-strategy-set"))))
                      (is (false? (:pass (get by-id "all-concept-items-standard"))))
                      (is (re-find #"Statin \(non-standard\)" (:detail (get by-id "all-concept-items-standard")))))
                    (restore) (done)))))))
@@ -104,6 +105,48 @@
                    (is (every? :pass (:checks out)))
                    (is (= body (:artifact out)))
                    (is (re-find #"clinical judgment" (:instruction out)))
+                   (restore) (done)))))))
+
+;; GET /cohortdefinition/{id} wraps the definition: :expression is a JSON
+;; string next to :name, :description and the rest. Reading the checks off
+;; that wrapper reported every saved cohort as empty.
+(deftest cohort-checks-read-the-expression-string-webapi-returns
+  (async done
+    (let [expr {:PrimaryCriteria {:CriteriaList [{:DrugExposure {:CodesetId 0 :First true}}]
+                                  :ObservationWindow {:PriorDays 365 :PostDays 0}}
+                :ConceptSets [{:id 0 :name "glipizide"
+                               :expression {:items [{:concept {:CONCEPT_ID 1560171
+                                                               :CONCEPT_NAME "glipizide"
+                                                               :STANDARD_CONCEPT "S"}}]}}]
+                :InclusionRules [{:name "Age 18 or older"
+                                  :expression {:Type "ALL" :CriteriaList []
+                                               :DemographicCriteriaList [{:Age {:Value 18 :Op "gte"}}]}}]}
+          body {:id 385 :name "New users of glipizide" :description "d"
+                :expressionType "SIMPLE_EXPRESSION"
+                :expression (js/JSON.stringify (clj->js expr))}
+          [recorded restore] (mock-request-status!
+                              (fn [_ _ _] {:status 200 :body body})
+                              (fn [_] [{:CONCEPT_ID 1560171 :CONCEPT_NAME "glipizide"
+                                        :STANDARD_CONCEPT "S" :INVALID_REASON "V"}]))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 385 :intent "new users of glipizide"} {})
+          (.then (fn [out]
+                   (let [by-id (checks-by-id out)]
+                     (is (every? :pass (:checks out)) (pr-str (remove :pass (:checks out))))
+                     (is (re-find #"1 inclusion rule" (:detail (get by-id "inclusion-rules-present")))))
+                   (is (= body (:artifact out)))
+                   (is (some #(re-find #"lookup/identifiers" (:path %)) @recorded) "concepts come from the parsed expression")
+                   (restore) (done)))))))
+
+(deftest cohort-review-says-so-when-the-saved-expression-is-not-json
+  (async done
+    (let [[_ restore] (mock-request-status!
+                       (fn [_ _ _] {:status 200 :body {:id 7 :expression "{not json"}}))]
+      (-> ((:run ra/tool) {:kind "cohort" :id 7 :intent "x"} {})
+          (.then (fn [out]
+                   (is (= [{:id "expression-readable" :pass false
+                            :detail "the saved expression is not valid JSON, so nothing could be checked"}]
+                          (:checks out)))
+                   (is (re-find #"Do not rebuild" (:instruction out)))
                    (restore) (done)))))))
 
 ;; ---------- concept_set checks ----------
