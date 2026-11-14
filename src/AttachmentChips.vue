@@ -31,7 +31,7 @@ function isPdf(info: AttachmentInfo) {
 function detail(item: AttachmentChipItem): string {
   const { info } = item
   if (item.reading) return t('cohortAgent.attachmentReading', 'Reading…')
-  if (info.unavailable) return t('cohortAgent.attachmentNotKept', 'Not kept after reload')
+  if (info.unavailable) return t('cohortAgent.attachmentGone', 'No longer available')
   const bits: string[] = []
   if (info.pages != null) bits.push(`${info.pages} ${info.pages === 1 ? 'page' : 'pages'}`)
   if (info.size != null) bits.push(formatBytes(info.size))
@@ -65,7 +65,7 @@ const justify = computed(() => (props.align === 'end' ? 'flex-end' : 'flex-start
       class="attachment-chip"
       :class="{ 'attachment-chip--gone': item.info.unavailable }"
       :title="item.info.unavailable
-        ? t('cohortAgent.attachmentGone', 'Attachments are not kept after the page reloads. Attach the file again if needed.')
+        ? t('cohortAgent.attachmentGoneHint', 'Files are kept in this browser for 30 days. Attach it again if needed.')
         : item.info.filename"
     >
       <img

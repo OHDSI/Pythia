@@ -34,6 +34,7 @@
     "@types/dompurify": "^3.0.5",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.4.0",
+    "fake-indexeddb": "6.2.6",
     "jsdom": "^24.0.0",
     "single-spa-vue": "^3.0.0",
     "typescript": "^5.9.0",

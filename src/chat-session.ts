@@ -26,7 +26,13 @@ import {
   snapshotPlans,
 } from './plan-state'
 import type { GatedPlanPayload } from './plan-state'
-import { isAttachmentPart, stripAttachmentsForStorage } from './attachments'
+import { attachmentOf, isAttachmentPart, stripAttachmentsForStorage } from './attachments'
+import {
+  deleteAttachments,
+  pruneOldAttachments,
+  restoreAttachments,
+  saveAttachments,
+} from './attachment-store'
 import {
   callBrowserTool,
   listBrowserTools,
@@ -465,14 +471,15 @@ function attachPersistence(chat: Chat<UIMessage>) {
     if (!id) return
     const snap = snapshotPlans()
     writeSession(id, {
-      // Attachment content is not kept: localStorage could not hold it, and
-      // files are meant to live only as long as the page.
+      // localStorage holds a placeholder per attachment; the content goes to
+      // IndexedDB (attachment-store.ts), which has room for it.
       messages: stripAttachmentsForStorage(JSON.parse(JSON.stringify(chat.messages)) as UIMessage[]),
       proposals: proposals.value,
       activePlan: snap.active,
       planHistory: snap.history,
       asks: asks.value,
     })
+    void saveAttachments(id, chat.messages)
   }
   watch(
     () => chat.messages,
@@ -1111,7 +1118,25 @@ export function getChatInstance(): Chat<UIMessage> {
 
   attachPersistence(chat)
   chatInstance = chat
+  // Expired files go first, so a chat untouched for 30 days opens without them.
+  void pruneOldAttachments().then(() => restoreSessionAttachments(id))
   return chat
+}
+
+// Puts the stored files back into the open chat's messages (their saved copy
+// holds only placeholders). Runs after the chat is shown, so it merges into
+// whatever the messages are by then and gives up if the user switched chats.
+async function restoreSessionAttachments(id: string): Promise<void> {
+  const chat = chatInstance
+  if (!chat) return
+  const restored = await restoreAttachments(id, chat.messages)
+  if (!restored || activeSessionId.value !== id || chatInstance !== chat) return
+  const byId = new Map(restored.map(m => [m.id, m]))
+  chat.messages = chat.messages.map(m => {
+    const r = byId.get(m.id)
+    if (!r || r.parts.length !== m.parts.length) return m
+    return { ...m, parts: m.parts.map((p, i) => (attachmentOf(p)?.info.unavailable ? r.parts[i] : p)) }
+  })
 }
 
 export function newChat() {
@@ -1151,10 +1176,12 @@ export function switchToSession(id: string) {
   appliedPlanTemplateCallIds.clear()
   for (const cid of collectPlanTemplateCallIds(persisted.messages)) appliedPlanTemplateCallIds.add(cid)
   if (chatInstance) chatInstance.messages = persisted.messages
+  void restoreSessionAttachments(id)
 }
 
 export function deleteChatSession(id: string) {
   deleteSession(id)
+  void deleteAttachments(id)
   const idx = readIndex().filter(s => s.id !== id)
   writeIndex(idx)
   if (activeSessionId.value === id) {
@@ -1187,6 +1214,7 @@ export function clearCurrentSession() {
   resetPlans()
   const id = activeSessionId.value
   if (id) {
+    void deleteAttachments(id)
     writeSession(id, {
       messages: [],
       proposals: {},

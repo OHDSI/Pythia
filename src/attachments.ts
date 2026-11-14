@@ -16,9 +16,11 @@
 // That marker lets the panel draw a chip instead of a text bubble, and lets
 // trex recognise attachment text it must not store. Providers ignore the key.
 //
-// Attachments are not kept after the page reloads: `stripAttachmentsForStorage`
-// swaps their content for a short "no longer available" note before a chat is
-// written to localStorage, which could not hold the files anyway.
+// Saved chats in localStorage could not hold the files, so
+// `stripAttachmentsForStorage` swaps each one for a short "no longer available"
+// note before a chat is written there. The content is kept in IndexedDB
+// instead (attachment-store.ts) and put back when the chat is opened; the note
+// is what remains when that copy is gone (expired, deleted, other browser).
 
 import type { FileUIPart, ProviderMetadata, TextUIPart, UIMessage } from 'ai'
 
@@ -287,8 +289,8 @@ export function isAttachmentPart(part: unknown): boolean {
 // ---------------------------------------------------------------- storage
 
 const UNAVAILABLE_NOTE =
-  'This file is no longer available: attachments are not kept after the page reloads. ' +
-  'Ask the user to attach it again if you need its content.'
+  'This file is no longer available: the browser no longer holds it (files are kept for 30 days, ' +
+  'and only in the browser they were attached in). Ask the user to attach it again if you need its content.'
 
 function unavailablePart(info: AttachmentInfo): TextUIPart {
   const gone: AttachmentInfo = { ...info, unavailable: true }
@@ -297,9 +299,9 @@ function unavailablePart(info: AttachmentInfo): TextUIPart {
 
 /**
  * The messages as they may be written to localStorage: every attachment is
- * replaced by a note that it is no longer available. The note is what the
- * model sees for that file on later turns after a reload, and what the panel
- * draws as a "not kept" chip.
+ * replaced by a note that it is no longer available. When the chat is opened
+ * again the stored content takes the note's place; if there is none, the note
+ * is what the model sees and the panel draws a "no longer available" chip.
  */
 export function stripAttachmentsForStorage<T extends UIMessage>(messages: T[]): T[] {
   return messages.map(m => {
