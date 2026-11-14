@@ -1458,7 +1458,7 @@ onMounted(async () => {
           {{ t('cohortAgent.dropTitle', 'Drop to attach') }}
         </div>
         <div class="cohort-agent-chat__drop-text">
-          {{ t('cohortAgent.dropText', 'PNG, JPG, WebP, GIF or PDF, under 20 MB each. Files go to the model with your next message and are not stored on the server.') }}
+          {{ t('cohortAgent.dropText', 'PNG, JPG, WebP, GIF or PDF, under 20 MB each. Files go to the model with your next message.') }}
         </div>
       </div>
     </div>

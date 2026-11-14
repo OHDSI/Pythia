@@ -1,9 +1,7 @@
 // Images and PDFs the user attaches to a chat message.
 //
-// Everything happens in the browser. A file becomes part of the user message
-// itself and travels to the model with the request, so nothing is uploaded or
-// stored on the server (trex drops attachment content before it records a
-// turn; see core/server/agents/service/redact-attachments.ts in trex).
+// Files are read in the browser and become part of the user message itself,
+// travelling to the model with the request; there is no separate upload.
 //
 //   - An image becomes an AI SDK `file` part holding a base64 data URL. Large
 //     images are scaled down first, which keeps them under the providers'
@@ -13,8 +11,8 @@
 //     images and scanned pages carry no text and are lost.
 //
 // Both kinds carry `providerMetadata.trex.attachment` describing the file.
-// That marker lets the panel draw a chip instead of a text bubble, and lets
-// trex recognise attachment text it must not store. Providers ignore the key.
+// That marker lets the panel draw a chip instead of a text bubble, and tells
+// extracted PDF text apart from what the user typed. Providers ignore the key.
 //
 // Saved chats in localStorage could not hold the files, so
 // `stripAttachmentsForStorage` swaps each one for a short "no longer available"
