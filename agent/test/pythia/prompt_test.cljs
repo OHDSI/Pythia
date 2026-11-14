@@ -61,3 +61,11 @@
   ;; render, so the cohort's preview and generation silently fail.
   (is (str/includes? prompt/base-prompt "criteria-renderable"))
   (is (str/includes? prompt/base-prompt "change its occurrence count")))
+
+(deftest base-prompt-covers-odd-requests-generation-names-and-piecewise
+  (doseq [needle ["generate_analysis"
+                  "analysisType \"cohort\""
+                  "hypotension"
+                  "Always pass a short clinical name to save_cohort"
+                  "over several messages"]]
+    (is (clojure.string/includes? prompt/base-prompt needle) needle)))
