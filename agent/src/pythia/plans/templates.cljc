@@ -8,6 +8,16 @@
    once in a template (target vs outcome) with distinct, stable step ids."
   (:require [pythia.plans.skills :as skills]))
 
+;; Off: the trailing review step reported complete cohorts as empty (it read
+;; the WebAPI wrapper, not the expression) and the agent rebuilt them to
+;; satisfy it. review_artifact is fixed, but the step also adds a minute after
+;; every save; until it has been re-tested the agent reviews only on request.
+(def auto-review? false)
+
+(def ^:private artifact-review-skills
+  #{"review-cohort" "review-concept-set" "review-characterization"
+    "review-pathway" "review-incidence-rate"})
+
 (def templates
   {"cohort-design"
    {:title "Design a cohort"
@@ -76,7 +86,8 @@
                    "so a refinement that is not saved has not happened. Do not rebuild the definition from scratch "
                    "to make one change — that loses whatever the user edited by hand.\n\n"
                    "## Success criteria\n"
-                   "The saved cohort reflects the requested change and nothing else, confirmed by the reviewer subagent.")
+                   "The saved cohort reflects the requested change and nothing else"
+                   (when auto-review? ", confirmed by the reviewer subagent") ".")
     :steps [{:skill "find-existing" :id "find-cohort" :label "Find the cohort to change" :required? true}
             {:skill "add-inclusion-exclusion" :id "apply-change" :label "Apply the requested change" :required? false}
             {:skill "build-cohort" :id "save-cohort" :label "Save the changed cohort" :required? true}
@@ -150,7 +161,10 @@
                    "The reference phenotype's Circe definition is loaded (and validated if transplanted).")
     :steps [{:skill "reuse-reference-phenotype" :required? true}]}})
 
-(defn template-for [scenario] (get templates scenario))
+(defn template-for [scenario]
+  (when-let [tpl (get templates scenario)]
+    (cond-> tpl
+      (not auto-review?) (update :steps #(filterv (fn [s] (not (artifact-review-skills (:skill s)))) %)))))
 
 (defn- ->payload-step [{:keys [skill required? id label description]}]
   (let [{slabel :label sdesc :description proposal-kind :proposal-kind route :route} (skills/skill skill)]

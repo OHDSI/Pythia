@@ -79,7 +79,7 @@
   ;; Two steps: create, then review the saved artifact. No review-plan step
   ;; here — a single-step plan has no structure worth self-critiquing.
   (let [ids (map :id (:steps (t/plan-payload "standalone-concept-set")))]
-    (is (= ["create-concept-set" "review-concept-set"] ids))))
+    (is (= (if t/auto-review? ["create-concept-set" "review-concept-set"] ["create-concept-set"]) ids))))
 
 (deftest rich-templates-open-with-review-plan-and-close-with-review-artifact
   (doseq [[scenario last-skill]
@@ -90,7 +90,15 @@
     (testing scenario
       (let [steps (:steps (t/plan-payload scenario))]
         (is (= "review-plan" (:id (first steps))) (str scenario " must open with review-plan"))
-        (is (= last-skill (:id (last steps))) (str scenario " must close with " last-skill))))))
+        (when t/auto-review?
+          (is (= last-skill (:id (last steps))) (str scenario " must close with " last-skill)))))))
+
+(deftest no-automatic-review-step-while-auto-review-is-off
+  (when-not t/auto-review?
+    (doseq [scenario (keys t/templates)
+            s (:steps (t/plan-payload scenario))]
+      (is (not (re-find #"^review-(cohort|concept-set|characterization|pathway|incidence-rate)$" (:id s)))
+          (str scenario " still carries " (:id s))))))
 
 (deftest every-step-carries-a-description
   (doseq [scenario (keys t/templates)]
