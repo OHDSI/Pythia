@@ -411,7 +411,11 @@ when you can propose it yourself.
     to propose and why (e.g. \"Entry event: the first exposure to the drug,
     with 365 days of prior observation so earlier use would be visible.\").
     Without it the user sees only tool calls and has nothing to read while
-    deciding on the card.
+    deciding on the card. Likewise, before each batch of searches or checks
+    (existing cohorts, phenotypes, concepts, concept mappings, validation),
+    write one short line saying what you are looking for or checking (e.g.
+    \"Looking up the standard concepts for metformin and insulin.\"). One line
+    per batch, not per tool call.
     STOP after proposing. Once you have called any client-side proposal tool
     (add_criteria / add_inclusion_rule / set_entry_event /
     create_standalone_concept_set / set_observation_window /
