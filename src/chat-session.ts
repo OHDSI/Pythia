@@ -475,9 +475,7 @@ function attachPersistence(chat: Chat<UIMessage>) {
     msgs => {
       // Intercept select_plan_template server-tool output (a message part, not
       // an onToolCall event) and instantiate the gated plan card.
-      scanForPlanTemplateOutput(msgs, appliedPlanTemplateCallIds, payload => {
-        applyGatedPlan(payload)
-      })
+      applyPendingPlanTemplates(msgs)
       const id = activeSessionId.value
       if (!id) return
       persistAll()
@@ -783,6 +781,12 @@ export function scanForPlanTemplateOutput(
   }
 }
 
+export function applyPendingPlanTemplates(messages: ReadonlyArray<UIMessage>): void {
+  scanForPlanTemplateOutput(messages, appliedPlanTemplateCallIds, payload => {
+    applyGatedPlan(payload)
+  })
+}
+
 // Seed the dedup set from a (persisted) messages array. On session restore the
 // persisted messages already contain the `select_plan_template` output part —
 // without seeding, the deep watch would see it with an empty set and re-apply
@@ -1012,6 +1016,8 @@ export function getChatInstance(): Chat<UIMessage> {
         return
       }
       if (isPlanTool(toolCall.toolName)) {
+        // The messages watch applies a selected plan only after this handler runs.
+        applyPendingPlanTemplates(chat.messages)
         const result = applyPlanToolCall(toolCall.toolName, toolCall.input)
         chat.addToolResult({
           tool: toolCall.toolName,

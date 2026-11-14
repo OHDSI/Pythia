@@ -23,14 +23,14 @@
        {:CONCEPT_ID 999 :CONCEPT_NAME "non std" :DOMAIN_ID "Condition"
         :VOCABULARY_ID "ICD10CM" :STANDARD_CONCEPT "C"}]
       (fn [recorded restore]
-        (-> ((:run sc/tool) {:query "type 2 diabetes"} {:source-key "EUNOMIA"
+        (-> ((:run sc/tool) {:query "diabetes"} {:source-key "EUNOMIA"
                                                         :auth "Bearer xyz"})
             (.then (fn [out]
                      (let [{:keys [method path opts]} @recorded]
                        (is (= "POST" method))
                        (is (= "/vocabulary/EUNOMIA/search" path))
                        (is (= "Bearer xyz" (:auth opts)))
-                       (is (= "type 2 diabetes" (get-in opts [:body :QUERY]))))
+                       (is (= "diabetes" (get-in opts [:body :QUERY]))))
                      ;; only STANDARD_CONCEPT='S' rows survive
                      (is (= 1 (count (:results out))))
                      (is (= 201826 (:conceptId (first (:results out)))))
@@ -98,3 +98,121 @@
                      (is (= [316866 1 2] (mapv :conceptId (:results out))))
                      (restore)
                      (done))))))))
+
+(defn- row [id name std]
+  {:CONCEPT_ID id :CONCEPT_NAME name :DOMAIN_ID "Drug"
+   :VOCABULARY_ID "RxNorm" :STANDARD_CONCEPT std})
+
+(defn- with-query-dispatch [by-query f]
+  (let [calls (atom [])
+        orig webapi/request]
+    (set! webapi/request
+          (fn [_ _ opts]
+            (let [q (get-in opts [:body :QUERY])]
+              (swap! calls conj q)
+              (js/Promise.resolve (get by-query q [])))))
+    (f calls (fn [] (set! webapi/request orig)))))
+
+(deftest run-falls-back-to-longest-word-for-any-order-match
+  (async done
+    (with-query-dispatch
+      {"lisinopril amlodipine" []
+       "lisinopril" [(row 1 "amlodipine / lisinopril Oral Tablet" "S")
+                     (row 2 "lisinopril Oral Tablet" "S")
+                     (row 3 "amlodipine / lisinopril Oral Capsule" "N")]}
+      (fn [calls restore]
+        (-> ((:run sc/tool) {:query "lisinopril amlodipine"} {:source-key "EUNOMIA"})
+            (.then (fn [out]
+                     (is (= ["lisinopril amlodipine" "lisinopril"] @calls))
+                     (is (= [1] (mapv :conceptId (:results out))))
+                     (is (= "matched all words of the query, in any order" (:note out)))
+                     (restore)
+                     (done))))))))
+
+(defn- check-filler-query [q done]
+  (with-query-dispatch
+    {"lisinopril" [(row 1 "amlodipine / lisinopril Oral Tablet" "S")
+                   (row 2 "lisinopril Oral Tablet" "S")]}
+    (fn [calls restore]
+      (-> ((:run sc/tool) {:query q} {:source-key "EUNOMIA"})
+          (.then (fn [out]
+                   (is (= [q "lisinopril"] @calls))
+                   (is (= [1] (mapv :conceptId (:results out))))
+                   (restore)
+                   (done)))))))
+
+(deftest run-fallback-ignores-and
+  (async done (check-filler-query "lisinopril and amlodipine" done)))
+
+(deftest run-fallback-ignores-comma
+  (async done (check-filler-query "lisinopril, amlodipine" done)))
+
+(deftest run-fallback-ignores-plus
+  (async done (check-filler-query "lisinopril + amlodipine" done)))
+
+(deftest run-skips-fallback-with-fewer-than-two-meaningful-words
+  (async done
+    (with-query-dispatch
+      {"type 2" []}
+      (fn [calls restore]
+        (-> ((:run sc/tool) {:query "type 2"} {:source-key "EUNOMIA"})
+            (.then (fn [out]
+                     (is (= ["type 2"] @calls))
+                     (is (= [] (:results out)))
+                     (restore)
+                     (done))))))))
+
+(deftest run-skips-fallback-when-phrase-search-is-enough
+  (async done
+    (with-query-dispatch
+      {"insulin glargine" (mapv #(row % (str "insulin glargine " %) "S") (range 1 6))}
+      (fn [calls restore]
+        (-> ((:run sc/tool) {:query "insulin glargine"} {:source-key "EUNOMIA"})
+            (.then (fn [out]
+                     (is (= 1 (count @calls)))
+                     (is (= [1 2 3 4 5] (mapv :conceptId (:results out))))
+                     (is (nil? (:note out)))
+                     (restore)
+                     (done))))))))
+
+(deftest run-keeps-phrase-hits-when-fallback-call-rejects
+  (async done
+    (let [orig webapi/request
+          n (atom 0)]
+      (set! webapi/request
+            (fn [_ _ _]
+              (if (= 1 (swap! n inc))
+                (js/Promise.resolve [(row 7 "lisinopril amlodipine thing" "S")])
+                (js/Promise.reject (js/Error. "boom")))))
+      (-> ((:run sc/tool) {:query "lisinopril amlodipine"} {:source-key "EUNOMIA"})
+          (.then (fn [out]
+                   (is (= 2 @n))
+                   (is (= [7] (mapv :conceptId (:results out))))
+                   (is (nil? (:note out)))
+                   (set! webapi/request orig)
+                   (done)))))))
+
+(deftest run-fallback-for-multi-word-condition-query-adds-rows
+  (async done
+    (let [orig webapi/request
+          calls (atom [])]
+      (set! webapi/request
+            (fn [_ _ opts]
+              (let [q (get-in opts [:body :QUERY])]
+                (swap! calls conj {:q q :domain (get-in opts [:body :DOMAIN_ID])})
+                (js/Promise.resolve
+                 (if (= q "type 2 diabetes")
+                   [(row 1 "Type 2 diabetes mellitus" "S")]
+                   [(row 1 "Type 2 diabetes mellitus" "S")
+                    (row 2 "Type 2 diabetes mellitus without complication" "S")
+                    (row 3 "Diabetes insipidus" "S")])))))
+      (-> ((:run sc/tool) {:query "type 2 diabetes" :domain "Condition"} {:source-key "EUNOMIA"})
+          (.then (fn [out]
+                   (is (= [{:q "type 2 diabetes" :domain ["Condition"]}
+                           {:q "diabetes" :domain ["Condition"]}]
+                          @calls))
+                   (is (= #{1 2} (set (map :conceptId (:results out)))))
+                   (is (= 2 (count (:results out))))
+                   (is (= "matched all words of the query, in any order" (:note out)))
+                   (set! webapi/request orig)
+                   (done)))))))

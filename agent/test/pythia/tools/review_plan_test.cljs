@@ -6,8 +6,8 @@
   "## Goal\nBuild a cohort.\n\n## Success criteria\nCohort is saved.")
 
 (deftest errors-when-no-active-plan
-  (is (= "no active plan to review — call select_plan_template or create_plan first"
-         (:error ((:run rp/tool) {:covers_request true :verdict "approved"} {})))))
+  (is (re-find #"If you called select_plan_template in this turn, pass its document and steps as plan"
+               (:error ((:run rp/tool) {:covers_request true :verdict "approved"} {})))))
 
 (deftest errors-when-plan-has-no-steps
   (is (contains? ((:run rp/tool) {:covers_request true :verdict "approved"}

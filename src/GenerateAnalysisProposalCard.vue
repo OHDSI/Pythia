@@ -1,14 +1,18 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ProposalState } from './types'
 
-defineProps<{ proposal: ProposalState }>()
+const props = defineProps<{ proposal: ProposalState }>()
 defineEmits<{ accept: [id: string]; reject: [id: string] }>()
 
 const KIND_LABELS: Record<string, string> = {
+  cohort: 'cohort',
   pathway: 'pathway analysis',
   characterization: 'characterization',
   incidenceRate: 'incidence rate analysis',
 }
+
+const isCohort = computed(() => props.proposal.args.analysisType === 'cohort')
 </script>
 
 <template>
@@ -21,12 +25,12 @@ const KIND_LABELS: Record<string, string> = {
       <span class="kind">Generate</span>
     </div>
     <div class="title">
-      Run the {{ KIND_LABELS[String(proposal.args.analysisType)] ?? 'analysis' }} against the data
+      {{ isCohort ? 'Generate the cohort' : `Run the ${KIND_LABELS[String(proposal.args.analysisType)] ?? 'analysis'}` }} against the data
     </div>
     <div class="detail">
       Executes it on
       <strong>{{ proposal.args.sourceKey || 'the current data source' }}</strong>
-      and brings the results back into the editor.
+      {{ isCohort ? 'and counts the people who match the cohort.' : 'and brings the results back into the editor.' }}
     </div>
 
     <div

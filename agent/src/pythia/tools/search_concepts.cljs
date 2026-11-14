@@ -122,6 +122,33 @@
                           :DOMAIN_ID (when (and domain (not (str/blank? domain))) [domain])}
                    :auth auth}))
 
+(def ^:private fallback-note "matched all words of the query, in any order")
+
+(def ^:private stop-words #{"and" "with" "the" "for" "of" "or" "in" "to" "plus"})
+
+(defn- meaningful-words
+  "Tokens that can sensibly be required in a concept name: punctuation and
+   filler such as \"and\" or \"+\" would otherwise veto real combination rows."
+  [query]
+  (->> (str/split (str/lower-case (str query)) #"[\s,/+()]+")
+       (remove #(or (< (count %) 3) (contains? stop-words %)))
+       vec))
+
+(defn- shape-results [query domain raw standard-rows fallback]
+  (let [annotated (->> standard-rows
+                       (sort-by #(relevance query %))
+                       (take max-results)
+                       (map to-result)
+                       vec
+                       (#(annotate-confidence % (str query))))]
+    {:results annotated
+     :ambiguity (corpus-ambiguity annotated)
+     :note (cond
+             (empty? annotated)
+             (str "WebAPI returned " (count raw) " row(s) but none matched STANDARD_CONCEPT='S'"
+                  (when domain (str " AND DOMAIN_ID=" domain)))
+             fallback fallback)}))
+
 (defn run
   "Tool entrypoint. `args` is {:query :domain}; `ctx` carries
    {:source-key :auth}. Returns a Promise of the result map."
@@ -135,18 +162,26 @@
           (.then (fn [raw]
                    (if (nil? raw)
                      {:results [] :note (str "WebAPI vocabulary search returned no body for source " source-key)}
-                     (let [filtered (->> raw
-                                         (filter standard-concept?)
-                                         (sort-by #(relevance query %))
-                                         (take max-results)
-                                         (map to-result)
-                                         vec)
-                           annotated (annotate-confidence filtered (str query))]
-                       {:results annotated
-                        :ambiguity (corpus-ambiguity annotated)
-                        :note (when (empty? annotated)
-                                (str "WebAPI returned " (count raw) " row(s) but none matched STANDARD_CONCEPT='S'"
-                                     (when domain (str " AND DOMAIN_ID=" domain))))}))))
+                     (let [words (meaningful-words query)
+                           phrase-hits (filter standard-concept? raw)]
+                       (if (and (>= (count words) 2) (< (count phrase-hits) 3))
+                         (-> (call-webapi source-key (apply max-key count (reverse words)) domain auth)
+                             (.then (fn [extra]
+                                      (let [matches-all? (fn [row]
+                                                           (let [name (str/lower-case (str (or (:CONCEPT_NAME row) (:conceptName row))))]
+                                                             (every? #(str/includes? name %) words)))
+                                            extra-hits (filter #(and (standard-concept? %) (matches-all? %)) extra)
+                                            merged (->> (concat phrase-hits extra-hits)
+                                                        (reduce (fn [[seen acc] r]
+                                                                  (let [id (or (:CONCEPT_ID r) (:conceptId r))]
+                                                                    (if (contains? seen id)
+                                                                      [seen acc]
+                                                                      [(conj seen id) (conj acc r)])))
+                                                                [#{} []])
+                                                        second)]
+                                        (shape-results query domain raw merged (when (seq extra-hits) fallback-note)))))
+                             (.catch (fn [_] (shape-results query domain raw phrase-hits nil))))
+                         (shape-results query domain raw phrase-hits nil))))))
           (.catch (fn [e]
                     {:results [] :note (str "WebAPI vocabulary search failed: "
                                             (or (.-message e) e))}))))))

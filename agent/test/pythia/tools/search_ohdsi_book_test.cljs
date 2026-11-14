@@ -1,5 +1,5 @@
 (ns pythia.tools.search-ohdsi-book-test
-  (:require [cljs.test :refer [deftest is async]]
+  (:require [cljs.reader] [cljs.test :refer [deftest is async]]
             [pythia.resources :as resources]
             [pythia.tools.search-ohdsi-book :as sob]))
 
@@ -62,3 +62,27 @@
                    (is (>= 1 (count (:results out))))
                    (restore)
                    (done)))))))
+
+(defn- real-corpus []
+  (js/Promise.resolve (.readFileSync (js/require "fs") "resources/book-of-ohdsi/passages.edn" "utf8")))
+
+(deftest committed-corpus-covers-persistence-window
+  (async done
+    (let [orig resources/read-text]
+      (sob/reset-cache!)
+      (set! resources/read-text (fn [_] (real-corpus)))
+      (-> ((:run sob/tool) {:query "persistence window drug era exit" :k 5} {})
+          (.then (fn [out]
+                   (is (some #(and (re-find #"Cohorts\.Rmd$" (:file %))
+                                   (re-find #"(?i)persistence window" (:snippet %)))
+                             (:results out)))
+                   (done)))
+          (.finally (fn []
+                      (set! resources/read-text orig)
+                      (sob/reset-cache!)))))))
+
+(deftest committed-corpus-has-no-stubs-or-front-matter-titles
+  (let [passages (cljs.reader/read-string (.readFileSync (js/require "fs") "resources/book-of-ohdsi/passages.edn" "utf8"))]
+    (is (pos? (count passages)))
+    (is (not-any? #(re-find #"currently a stub" (:text %)) passages))
+    (is (not-any? #(clojure.string/starts-with? (:title %) "reference-location") passages))))
