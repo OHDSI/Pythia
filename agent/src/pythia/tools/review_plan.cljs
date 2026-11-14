@@ -63,7 +63,7 @@
 (defn run [args ctx]
   (let [plan (or (:plan args) (:plan ctx))]
     (if (or (nil? plan) (empty? (:steps plan)))
-      {:error "no active plan to review — call select_plan_template or create_plan first"}
+      {:error "no active plan to review. If you called select_plan_template in this turn, pass its document and steps as plan."}
       (let [issues (structural-issues plan)
             verdict (or (:verdict args) "needs_revision")
             needs-fix? (or (seq issues) (= verdict "needs_revision"))]

@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   proposals, lastNavigation, sessionRouteContext,
-  scanForPlanTemplateOutput, collectPlanTemplateCallIds,
+  scanForPlanTemplateOutput, collectPlanTemplateCallIds, applyPendingPlanTemplates,
   buildAgentRequestBody, autoApproveProposals, setAutoApproveProposals,
   acceptProposal, recordProposal, setHostBridge, recordAndMaybeAutoAccept,
   proposalKind,
   CLIENT_SIDE_TOOLS,
   snapshotBrowserTools, dispatchBrowserToolCall,
 } from '../src/chat-session'
-import { applyCreatePlan, activePlan, resetPlans } from '../src/plan-state'
+import { applyCreatePlan, activePlan, resetPlans, applyPlanToolCall } from '../src/plan-state'
 import {
   callBrowserTool,
   listBrowserTools,
@@ -1027,5 +1027,44 @@ describe('every proposal capability is registered as client-side', () => {
       expect(proposalKind(name, {}), `${name} has no kind`).toBeTruthy()
       expect(CLIENT_SIDE_TOOLS.has(name), `${name} is not in CLIENT_SIDE_TOOLS`).toBe(true)
     }
+  })
+})
+
+describe('applyPendingPlanTemplates', () => {
+  const build = (callId: string) => [{
+    id: 'm1',
+    role: 'assistant',
+    parts: [{
+      type: 'tool-select_plan_template',
+      state: 'output-available',
+      toolCallId: callId,
+      output: {
+        title: 'T',
+        document: 'doc',
+        steps: [
+          { id: 'review-plan', label: 'Review', required: true },
+          { id: 'find-existing', label: 'Find', required: true },
+        ],
+      },
+    }],
+  }] as unknown as UIMessage[]
+
+  beforeEach(() => resetPlans())
+
+  it('lets a plan tool see a plan chosen in the same turn', () => {
+    const msgs = build('tc-a')
+    expect(applyPlanToolCall('update_plan_step', { stepId: 'review-plan', status: 'done' }))
+      .not.toEqual({ ok: true })
+    applyPendingPlanTemplates(msgs)
+    expect(applyPlanToolCall('update_plan_step', { stepId: 'review-plan', status: 'done' }))
+      .toMatchObject({ ok: true })
+  })
+
+  it('applies a template once', () => {
+    const msgs = build('tc-b')
+    applyPendingPlanTemplates(msgs)
+    applyPlanToolCall('update_plan_step', { stepId: 'review-plan', status: 'done' })
+    applyPendingPlanTemplates(msgs)
+    expect(activePlan.value?.steps[0].status).toBe('done')
   })
 })
