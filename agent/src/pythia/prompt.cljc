@@ -699,8 +699,8 @@ than a flat list of criteria:
   follow-up requirement (e.g., \"at least 365 days of prior observation\").
 - `add_exit_criterion` — call for cohort exit logic. Pick `end_of_observation`
   for the default, `fixed_duration` for \"30 days after entry\",
-  `continuous_drug` for persistence-window-driven drug cohorts, or
-  `custom_event` when an event ends time-at-risk.
+  or `continuous_drug` for persistence-window-driven drug cohorts. Use
+  `set_censor_event` when an event ends time-at-risk.
 - `set_censor_event` — call when a competing event should censor patients
   (e.g., \"censor on death\", \"censor on cancer diagnosis\").
 - `create_standalone_concept_set` — the ONLY way pythia creates a concept
