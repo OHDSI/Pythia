@@ -54,6 +54,18 @@ import ProposalGroupCard from './ProposalGroupCard.vue'
 import AskUserCard from './AskUserCard.vue'
 import StarterPrompts from './StarterPrompts.vue'
 import UndoToast from './UndoToast.vue'
+import AttachmentChips, { type AttachmentChipItem } from './AttachmentChips.vue'
+import {
+  ACCEPT,
+  AttachmentError,
+  MAX_ATTACHMENTS,
+  PDF_TYPE,
+  attachmentOf,
+  isAttachmentPart,
+  prepareAttachment,
+  rejectReason,
+  type AttachmentPart,
+} from './attachments'
 import type { AskState, ProposalState } from './types'
 
 const props = defineProps<{
@@ -65,6 +77,119 @@ const props = defineProps<{
 
 const inputText = ref('')
 const messagesContainer = ref<HTMLElement | null>(null)
+
+// Files waiting in the composer. Each is read in the browser (a PDF's text
+// extracted, a large image scaled down) as soon as it is added, so it is ready
+// by the time the user presses send. See attachments.ts.
+interface PendingAttachment extends AttachmentChipItem {
+  part?: AttachmentPart
+}
+const pendingAttachments = ref<PendingAttachment[]>([])
+const attachmentErrors = ref<string[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+const isReadingAttachments = computed(() => pendingAttachments.value.some(a => a.reading))
+let attachmentSeq = 0
+
+function addFiles(files: Iterable<File>) {
+  const errors: string[] = []
+  for (const file of files) {
+    if (pendingAttachments.value.length >= MAX_ATTACHMENTS) {
+      errors.push(`${file.name} was not added. A message can carry at most ${MAX_ATTACHMENTS} files.`)
+      continue
+    }
+    const reason = rejectReason(file)
+    if (reason) {
+      errors.push(`${file.name} ${reason}`)
+      continue
+    }
+    const id = `att-${++attachmentSeq}`
+    const isPdf = file.type === PDF_TYPE || file.name.toLowerCase().endsWith('.pdf')
+    pendingAttachments.value.push({
+      id,
+      reading: true,
+      info: { filename: file.name, mediaType: isPdf ? PDF_TYPE : file.type, size: file.size },
+    })
+    prepareAttachment(file).then(
+      prepared => {
+        const item = pendingAttachments.value.find(a => a.id === id)
+        if (!item) return // removed while it was being read
+        Object.assign(item, {
+          reading: false,
+          info: prepared.info,
+          previewUrl: prepared.previewUrl,
+          part: prepared.part,
+        })
+      },
+      (e: unknown) => {
+        pendingAttachments.value = pendingAttachments.value.filter(a => a.id !== id)
+        attachmentErrors.value = [
+          ...attachmentErrors.value,
+          e instanceof AttachmentError ? `${e.filename} ${e.reason}` : `${file.name} could not be read.`,
+        ]
+      },
+    )
+  }
+  if (errors.length) attachmentErrors.value = [...attachmentErrors.value, ...errors]
+}
+
+function removeAttachment(id: string) {
+  pendingAttachments.value = pendingAttachments.value.filter(a => a.id !== id)
+}
+
+function onPickFiles() {
+  fileInput.value?.click()
+}
+
+function onFileInputChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files) addFiles(Array.from(input.files))
+  input.value = '' // so picking the same file again still fires change
+}
+
+function onPaste(e: ClipboardEvent) {
+  const files = Array.from(e.clipboardData?.files ?? [])
+  if (files.length === 0) return // plain text paste
+  e.preventDefault()
+  addFiles(files)
+}
+
+// Drag and drop onto the whole panel. dragenter/dragleave fire for every child
+// element crossed, so a depth counter tells when the drag really left.
+const dragDepth = ref(0)
+const isDraggingFiles = computed(() => dragDepth.value > 0)
+
+function hasFiles(e: DragEvent): boolean {
+  return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+}
+
+function onDragEnter(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth.value++
+}
+
+function onDragOver(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+function onDragLeave(e: DragEvent) {
+  if (!hasFiles(e)) return
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+
+function onDrop(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth.value = 0
+  addFiles(Array.from(e.dataTransfer?.files ?? []))
+}
+
+const canSend = computed(() =>
+  !isReadingAttachments.value &&
+  (inputText.value.trim().length > 0 || pendingAttachments.value.length > 0)
+)
 
 // The Chat instance lives in chat-session.ts as a module-level singleton so
 // it survives this component's mount/unmount cycle (FAB open/close) and is
@@ -195,11 +320,12 @@ const NO_CARDS: { groups: ProposalGroup[]; asks: AskState[] } = { groups: [], as
 // a count says the same thing. Consecutive runs only — a later, separate run of
 // the same tool stays its own chip, because the order tells a story.
 interface DisplayRow {
-  kind: 'text' | 'tool'
+  kind: 'text' | 'tool' | 'attachments'
   part: unknown
   idxs: number[]
   name?: string
   count?: number
+  attachments?: AttachmentChipItem[]
 }
 
 function displayRows(msg: { id: string; parts?: unknown[] }): DisplayRow[] {
@@ -208,6 +334,19 @@ function displayRows(msg: { id: string; parts?: unknown[] }): DisplayRow[] {
   parts.forEach((part, idx) => {
     const t = part?.type
     const isTool = typeof t === 'string' && t.startsWith('tool-')
+    const attachment = attachmentOf(part)
+    if (attachment) {
+      // Consecutive attachments share one row of chips.
+      const item = { id: `${msg.id}-${idx}`, ...attachment }
+      const last = rows[rows.length - 1]
+      if (last && last.kind === 'attachments') {
+        last.attachments!.push(item)
+        last.idxs.push(idx)
+      } else {
+        rows.push({ kind: 'attachments', part, idxs: [idx], attachments: [item] })
+      }
+      return
+    }
     if (!isTool) {
       rows.push({ kind: 'text', part, idxs: [idx] })
       return
@@ -323,6 +462,8 @@ const showStandaloneTypingBubble = computed(() => {
 })
 
 function textOf(part: unknown): string {
+  // Extracted PDF text is drawn as a chip, never as a bubble.
+  if (isAttachmentPart(part)) return ''
   if (part && typeof part === 'object' && 'type' in part && (part as { type: string }).type === 'text') {
     const t = (part as { text?: unknown }).text
     return typeof t === 'string' ? t : ''
@@ -445,7 +586,17 @@ function cardComponentFor(toolName: string) {
 
 async function send(text: string) {
   const trimmed = text.trim()
-  if (!trimmed || isStreaming.value) return
+  if (isStreaming.value || isReadingAttachments.value) return
+  const attached = pendingAttachments.value
+  if (!trimmed && attached.length === 0) return
+  // Attachments go first: models answer questions about a document better
+  // when the document comes before the question.
+  const parts = [
+    ...attached.flatMap(a => (a.part ? [a.part] : [])),
+    ...(trimmed ? [{ type: 'text' as const, text: trimmed }] : []),
+  ]
+  pendingAttachments.value = []
+  attachmentErrors.value = []
   // Clear the composer as soon as the message is on its way. Clearing only
   // after `sendMessage` resolves left the text sitting in the box for the whole
   // turn, which reads as "it didn't send" and invites a double submit.
@@ -481,7 +632,7 @@ async function send(text: string) {
     // Stale context is preferable to no context — keep last known.
   }
   disarmAutoSend()
-  await chat.sendMessage({ text: trimmed })
+  await chat.sendMessage({ parts })
   clearAutoSendSuppression()
 }
 
@@ -847,6 +998,10 @@ onMounted(async () => {
     class="cohort-agent-chat"
     flat
     rounded="lg"
+    @dragenter="onDragEnter"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="onDrop"
   >
     <div
       class="cohort-agent-chat__resize cohort-agent-chat__resize--left"
@@ -995,9 +1150,16 @@ onMounted(async () => {
           class="cohort-agent-chat__row"
           :class="`cohort-agent-chat__row--${msg.role}`"
         >
+          <AttachmentChips
+            v-if="row.kind === 'attachments'"
+            :items="row.attachments ?? []"
+            :align="msg.role === 'user' ? 'end' : 'start'"
+            :t="t"
+            class="cohort-agent-chat__message-attachments"
+          />
           <!-- User messages stay plain text; assistant/system render markdown. -->
           <div
-            v-if="textOf(row.part) && msg.role === 'user'"
+            v-else-if="textOf(row.part) && msg.role === 'user'"
             class="cohort-agent-chat__bubble cohort-agent-chat__bubble--user"
           >
             {{ textOf(row.part) }}
@@ -1196,10 +1358,55 @@ onMounted(async () => {
       class="cohort-agent-chat__composer pa-2"
       elevation="0"
     >
+      <v-alert
+        v-if="attachmentErrors.length"
+        type="error"
+        density="compact"
+        variant="tonal"
+        closable
+        class="mb-2 cohort-agent-chat__attach-errors"
+        data-testid="pythia-attachment-errors"
+        @click:close="attachmentErrors = []"
+      >
+        <div
+          v-for="(msg, i) in attachmentErrors"
+          :key="i"
+        >
+          {{ msg }}
+        </div>
+      </v-alert>
+      <AttachmentChips
+        v-if="pendingAttachments.length"
+        :items="pendingAttachments"
+        removable
+        :t="t"
+        class="mb-2"
+        data-testid="pythia-pending-attachments"
+        @remove="removeAttachment"
+      />
+      <input
+        ref="fileInput"
+        type="file"
+        multiple
+        :accept="ACCEPT"
+        hidden
+        data-testid="pythia-file-input"
+        @change="onFileInputChange"
+      >
       <form
-        class="d-flex"
+        class="d-flex align-center"
         @submit="onSubmit"
       >
+        <v-btn
+          :title="t('cohortAgent.attach', 'Attach images or PDFs')"
+          :aria-label="t('cohortAgent.attach', 'Attach images or PDFs')"
+          icon="mdi-paperclip"
+          variant="text"
+          size="small"
+          class="me-1"
+          data-testid="pythia-attach"
+          @click="onPickFiles"
+        />
         <v-text-field
           v-model="inputText"
           :placeholder="t('cohortAgent.inputPlaceholder', 'Describe the cohort you want to build…')"
@@ -1208,6 +1415,7 @@ onMounted(async () => {
           hide-details
           single-line
           autocomplete="off"
+          @paste="onPaste"
         />
         <v-btn
           v-if="isStreaming"
@@ -1221,18 +1429,89 @@ onMounted(async () => {
         <v-btn
           v-else
           type="submit"
-          :disabled="!inputText.trim()"
+          :disabled="!canSend"
           color="primary"
           icon="mdi-send"
           variant="flat"
           class="ms-2"
         />
       </form>
+      <div
+        v-if="pendingAttachments.length"
+        class="cohort-agent-chat__attach-hint"
+      >
+        {{ t('cohortAgent.attachHint', 'Images or PDFs, under 20 MB each. Drop files anywhere on the panel.') }}
+      </div>
     </v-sheet>
+
+    <div
+      v-if="isDraggingFiles"
+      class="cohort-agent-chat__drop"
+      data-testid="pythia-drop-overlay"
+    >
+      <div class="cohort-agent-chat__drop-zone">
+        <v-icon
+          icon="mdi-cloud-upload-outline"
+          size="44"
+        />
+        <div class="cohort-agent-chat__drop-title">
+          {{ t('cohortAgent.dropTitle', 'Drop to attach') }}
+        </div>
+        <div class="cohort-agent-chat__drop-text">
+          {{ t('cohortAgent.dropText', 'PNG, JPG, WebP, GIF or PDF, under 20 MB each. Files go to the model with your next message.') }}
+        </div>
+      </div>
+    </div>
   </v-card>
 </template>
 
 <style scoped>
+.cohort-agent-chat__message-attachments {
+  max-width: 92%;
+}
+.cohort-agent-chat__attach-errors {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cohort-agent-chat__attach-hint {
+  padding: 4px 4px 0;
+  font-size: 11px;
+  color: #5b6573;
+}
+.cohort-agent-chat__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  padding: 16px;
+  display: flex;
+  background: rgba(29, 58, 92, 0.86);
+  border-radius: inherit;
+  /* The overlay must not swallow the drag events the card counts. */
+  pointer-events: none;
+}
+.cohort-agent-chat__drop-zone {
+  flex: 1 1 auto;
+  border: 2px dashed #c9d8ea;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: #ffffff;
+  text-align: center;
+}
+.cohort-agent-chat__drop-title {
+  font-size: 20px;
+  font-weight: 500;
+}
+.cohort-agent-chat__drop-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #dbe6f2;
+  max-width: 300px;
+}
 .cohort-agent-chat {
   display: flex;
   flex-direction: column;
