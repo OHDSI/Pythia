@@ -141,3 +141,45 @@
                      (is (nil? (:note out)))
                      (restore)
                      (done))))))))
+
+(deftest run-keeps-phrase-hits-when-fallback-call-rejects
+  (async done
+    (let [orig webapi/request
+          n (atom 0)]
+      (set! webapi/request
+            (fn [_ _ _]
+              (if (= 1 (swap! n inc))
+                (js/Promise.resolve [(row 7 "lisinopril amlodipine thing" "S")])
+                (js/Promise.reject (js/Error. "boom")))))
+      (-> ((:run sc/tool) {:query "lisinopril amlodipine"} {:source-key "EUNOMIA"})
+          (.then (fn [out]
+                   (is (= 2 @n))
+                   (is (= [7] (mapv :conceptId (:results out))))
+                   (is (nil? (:note out)))
+                   (set! webapi/request orig)
+                   (done)))))))
+
+(deftest run-fallback-for-multi-word-condition-query-adds-rows
+  (async done
+    (let [orig webapi/request
+          calls (atom [])]
+      (set! webapi/request
+            (fn [_ _ opts]
+              (let [q (get-in opts [:body :QUERY])]
+                (swap! calls conj {:q q :domain (get-in opts [:body :DOMAIN_ID])})
+                (js/Promise.resolve
+                 (if (= q "type 2 diabetes")
+                   [(row 1 "Type 2 diabetes mellitus" "S")]
+                   [(row 1 "Type 2 diabetes mellitus" "S")
+                    (row 2 "Type 2 diabetes mellitus without complication" "S")
+                    (row 3 "Diabetes insipidus" "S")])))))
+      (-> ((:run sc/tool) {:query "type 2 diabetes" :domain "Condition"} {:source-key "EUNOMIA"})
+          (.then (fn [out]
+                   (is (= [{:q "type 2 diabetes" :domain ["Condition"]}
+                           {:q "diabetes" :domain ["Condition"]}]
+                          @calls))
+                   (is (= #{1 2} (set (map :conceptId (:results out)))))
+                   (is (= 2 (count (:results out))))
+                   (is (= "matched all words of the query, in any order" (:note out)))
+                   (set! webapi/request orig)
+                   (done)))))))

@@ -169,7 +169,8 @@
                                                                       [(conj seen id) (conj acc r)])))
                                                                 [#{} []])
                                                         second)]
-                                        (shape-results query domain raw merged (when (seq extra-hits) fallback-note))))))
+                                        (shape-results query domain raw merged (when (seq extra-hits) fallback-note)))))
+                             (.catch (fn [_] (shape-results query domain raw phrase-hits nil))))
                          (shape-results query domain raw phrase-hits nil))))))
           (.catch (fn [e]
                     {:results [] :note (str "WebAPI vocabulary search failed: "
