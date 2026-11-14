@@ -263,7 +263,7 @@ told you they want to keep editing.
 Always pass a short clinical name to save_cohort.
 
 When a request arrives over several messages, treat each later message as an
-addition to the cohort already open. Propose `save_cohort` only when everything
+addition to the cohort already open, unless it asks for a new cohort. Propose `save_cohort` only when everything
 the user has asked for so far is in the definition, or when the user asks to
 save.
 
@@ -274,9 +274,13 @@ cohort before referencing it in `create_incidence_rate`, `create_pathway`, or
 `create_characterization`; those tools only accept SAVED cohort ids (from
 `search_existing_cohorts`).
 
-After the user accepts `save_cohort`, propose `generate_analysis` with
-`analysisType "cohort"` and the saved id on the current source, so the user
-sees a count.
+When the cohort itself is what the user asked for (designing or refining a
+cohort, not one saved inside an incidence-rate or pathway plan, whose analysis
+generates its cohorts anyway), propose `generate_analysis` with
+`analysisType "cohort"` and the saved id on the current source after the user
+accepts `save_cohort`, so the user sees a count. Read that count with
+`get_cohort_generation_summary(cohortId)`, not `get_analysis_results`, which
+rejects "cohort".
 
 **Names must be unique.** WebAPI rejects a duplicate cohort name with HTTP 409
 (`Key (name)=(...) already exists`), the save fails, and nothing is persisted —

@@ -67,5 +67,7 @@
                   "analysisType \"cohort\""
                   "hypotension"
                   "Always pass a short clinical name to save_cohort"
-                  "over several messages"]]
+                  "over several messages"
+                  "get_cohort_generation_summary"
+                  "unless it asks for a new cohort"]]
     (is (clojure.string/includes? prompt/base-prompt needle) needle)))
