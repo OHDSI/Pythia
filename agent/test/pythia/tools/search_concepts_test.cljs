@@ -129,6 +129,39 @@
                      (restore)
                      (done))))))))
 
+(defn- check-filler-query [q done]
+  (with-query-dispatch
+    {"lisinopril" [(row 1 "amlodipine / lisinopril Oral Tablet" "S")
+                   (row 2 "lisinopril Oral Tablet" "S")]}
+    (fn [calls restore]
+      (-> ((:run sc/tool) {:query q} {:source-key "EUNOMIA"})
+          (.then (fn [out]
+                   (is (= [q "lisinopril"] @calls))
+                   (is (= [1] (mapv :conceptId (:results out))))
+                   (restore)
+                   (done)))))))
+
+(deftest run-fallback-ignores-and
+  (async done (check-filler-query "lisinopril and amlodipine" done)))
+
+(deftest run-fallback-ignores-comma
+  (async done (check-filler-query "lisinopril, amlodipine" done)))
+
+(deftest run-fallback-ignores-plus
+  (async done (check-filler-query "lisinopril + amlodipine" done)))
+
+(deftest run-skips-fallback-with-fewer-than-two-meaningful-words
+  (async done
+    (with-query-dispatch
+      {"type 2" []}
+      (fn [calls restore]
+        (-> ((:run sc/tool) {:query "type 2"} {:source-key "EUNOMIA"})
+            (.then (fn [out]
+                     (is (= ["type 2"] @calls))
+                     (is (= [] (:results out)))
+                     (restore)
+                     (done))))))))
+
 (deftest run-skips-fallback-when-phrase-search-is-enough
   (async done
     (with-query-dispatch

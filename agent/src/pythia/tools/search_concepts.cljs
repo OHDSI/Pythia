@@ -124,6 +124,16 @@
 
 (def ^:private fallback-note "matched all words of the query, in any order")
 
+(def ^:private stop-words #{"and" "with" "the" "for" "of" "or" "in" "to" "plus"})
+
+(defn- meaningful-words
+  "Tokens that can sensibly be required in a concept name: punctuation and
+   filler such as \"and\" or \"+\" would otherwise veto real combination rows."
+  [query]
+  (->> (str/split (str/lower-case (str query)) #"[\s,/+()]+")
+       (remove #(or (< (count %) 3) (contains? stop-words %)))
+       vec))
+
 (defn- shape-results [query domain raw standard-rows fallback]
   (let [annotated (->> standard-rows
                        (sort-by #(relevance query %))
@@ -152,7 +162,7 @@
           (.then (fn [raw]
                    (if (nil? raw)
                      {:results [] :note (str "WebAPI vocabulary search returned no body for source " source-key)}
-                     (let [words (vec (remove str/blank? (str/split (str/lower-case (str query)) #"\s+")))
+                     (let [words (meaningful-words query)
                            phrase-hits (filter standard-concept? raw)]
                        (if (and (>= (count words) 2) (< (count phrase-hits) 3))
                          (-> (call-webapi source-key (apply max-key count (reverse words)) domain auth)
