@@ -23,14 +23,14 @@
        {:CONCEPT_ID 999 :CONCEPT_NAME "non std" :DOMAIN_ID "Condition"
         :VOCABULARY_ID "ICD10CM" :STANDARD_CONCEPT "C"}]
       (fn [recorded restore]
-        (-> ((:run sc/tool) {:query "type 2 diabetes"} {:source-key "EUNOMIA"
+        (-> ((:run sc/tool) {:query "diabetes"} {:source-key "EUNOMIA"
                                                         :auth "Bearer xyz"})
             (.then (fn [out]
                      (let [{:keys [method path opts]} @recorded]
                        (is (= "POST" method))
                        (is (= "/vocabulary/EUNOMIA/search" path))
                        (is (= "Bearer xyz" (:auth opts)))
-                       (is (= "type 2 diabetes" (get-in opts [:body :QUERY]))))
+                       (is (= "diabetes" (get-in opts [:body :QUERY]))))
                      ;; only STANDARD_CONCEPT='S' rows survive
                      (is (= 1 (count (:results out))))
                      (is (= 201826 (:conceptId (first (:results out)))))
@@ -96,5 +96,48 @@
         (-> ((:run sc/tool) {:query "hypertensive disorder"} {:source-key "SYNPUF5" :auth "Bearer xyz"})
             (.then (fn [out]
                      (is (= [316866 1 2] (mapv :conceptId (:results out))))
+                     (restore)
+                     (done))))))))
+
+(defn- row [id name std]
+  {:CONCEPT_ID id :CONCEPT_NAME name :DOMAIN_ID "Drug"
+   :VOCABULARY_ID "RxNorm" :STANDARD_CONCEPT std})
+
+(defn- with-query-dispatch [by-query f]
+  (let [calls (atom [])
+        orig webapi/request]
+    (set! webapi/request
+          (fn [_ _ opts]
+            (let [q (get-in opts [:body :QUERY])]
+              (swap! calls conj q)
+              (js/Promise.resolve (get by-query q [])))))
+    (f calls (fn [] (set! webapi/request orig)))))
+
+(deftest run-falls-back-to-longest-word-for-any-order-match
+  (async done
+    (with-query-dispatch
+      {"lisinopril amlodipine" []
+       "lisinopril" [(row 1 "amlodipine / lisinopril Oral Tablet" "S")
+                     (row 2 "lisinopril Oral Tablet" "S")
+                     (row 3 "amlodipine / lisinopril Oral Capsule" "N")]}
+      (fn [calls restore]
+        (-> ((:run sc/tool) {:query "lisinopril amlodipine"} {:source-key "EUNOMIA"})
+            (.then (fn [out]
+                     (is (= ["lisinopril amlodipine" "lisinopril"] @calls))
+                     (is (= [1] (mapv :conceptId (:results out))))
+                     (is (= "matched all words of the query, in any order" (:note out)))
+                     (restore)
+                     (done))))))))
+
+(deftest run-skips-fallback-when-phrase-search-is-enough
+  (async done
+    (with-query-dispatch
+      {"insulin glargine" (mapv #(row % (str "insulin glargine " %) "S") (range 1 6))}
+      (fn [calls restore]
+        (-> ((:run sc/tool) {:query "insulin glargine"} {:source-key "EUNOMIA"})
+            (.then (fn [out]
+                     (is (= 1 (count @calls)))
+                     (is (= [1 2 3 4 5] (mapv :conceptId (:results out))))
+                     (is (nil? (:note out)))
                      (restore)
                      (done))))))))
