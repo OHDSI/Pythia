@@ -19,38 +19,55 @@ const LOOKUP_TOOLS = new Set([
   'search_existing_concept_sets', 'search_existing_cohorts', 'get_artifact', 'phenotype_patterns',
 ])
 
+function isGateRefusal(c: ToolCall): boolean {
+  const o = c.output as { instruction?: unknown } | null
+  return !!o && typeof o.instruction === 'string' && /must complete before this one/i.test(o.instruction)
+}
+
 const fmt = (c: ToolCall) => `#${c.seq} ${c.name} ${JSON.stringify(c.input ?? {}).slice(0, 200)}`
 
 // How the agent got to the cohort, from the recorded conversation.
-export function expectHealthyConversation(trace: ChatTrace, expr: CohortExpression | undefined) {
+export function expectHealthyConversation(
+  trace: ChatTrace, expr: CohortExpression | undefined, { soft = true }: { soft?: boolean } = {},
+) {
+  // Soft by default, so one agent run reports every finding instead of the
+  // first. The self-test runs them strict to see each one fail.
+  const e = soft ? expect.soft : expect
   const calls = trace.ordered()
   const proposals = calls.filter(c => PROPOSAL_TOOLS.has(c.name))
 
-  expect(trace.streamErrors, 'the agent stream reported errors').toEqual([])
+  e(trace.streamErrors, 'the agent stream reported errors').toEqual([])
 
   const failed = calls.filter(c => c.side === 'server' && c.error)
-  expect(failed.map(c => `${fmt(c)} -> ${c.error}`), 'server tools failed').toEqual([])
+  e(failed.map(c => `${fmt(c)} -> ${c.error}`), 'server tools failed').toEqual([])
 
   // Every proposal was answered, accepted, and actually applied by ATLAS.
   const unresolved = proposals.filter(c => c.output === undefined && !c.error)
-  expect(unresolved.map(fmt), 'proposals left without a result').toEqual([])
-  const notAccepted = proposals.filter(c => c.output !== undefined && decisionOf(c) !== 'accepted')
-  expect(notAccepted.map(c => `${fmt(c)} -> ${decisionOf(c) ?? JSON.stringify(c.output).slice(0, 200)}`),
+  e(unresolved.map(fmt), 'proposals left without a result').toEqual([])
+  // A proposal the plan's step-order gate turned back carries only an
+  // instruction ("do step X first"). Recovering from that is fine; a refused
+  // change that is never applied later is not.
+  const gated = proposals.filter(c => c.output !== undefined && decisionOf(c) === undefined && isGateRefusal(c))
+  const neverApplied = gated.filter(g => !proposals.some(p => p.seq > g.seq && p.name === g.name && decisionOf(p) === 'accepted'))
+  e(neverApplied.map(fmt), 'proposals refused by the plan gate and never applied afterwards').toEqual([])
+  if (gated.length) test.info().annotations.push({ type: 'gate', description: `${gated.length} proposal(s) sent out of plan order and corrected: ${gated.map(fmt).join('; ')}` })
+  const notAccepted = proposals.filter(c => c.output !== undefined && decisionOf(c) !== 'accepted' && !gated.includes(c))
+  e(notAccepted.map(c => `${fmt(c)} -> ${decisionOf(c) ?? JSON.stringify(c.output).slice(0, 200)}`),
     'proposals not accepted or not applied by ATLAS').toEqual([])
 
   // Research before editing: some lookup precedes the first edit.
   const firstEdit = proposals.find(c => c.name !== 'generate_analysis')
-  expect(firstEdit, 'the agent never proposed an edit').toBeTruthy()
-  expect(calls.some(c => LOOKUP_TOOLS.has(c.name) && c.seq < firstEdit!.seq),
-    `no vocabulary/library lookup before the first edit (${fmt(firstEdit!)})`).toBe(true)
+  e(firstEdit, 'the agent never proposed an edit').toBeTruthy()
+  if (firstEdit) e(calls.some(c => LOOKUP_TOOLS.has(c.name) && c.seq < firstEdit.seq),
+    `no vocabulary/library lookup before the first edit (${fmt(firstEdit)})`).toBe(true)
 
   // Build, then save, then generate.
   const entry = trace.first('set_entry_event') ?? trace.first('use_concept_set')
   const save = trace.first('save_cohort')
-  expect(save, 'the agent never proposed save_cohort').toBeTruthy()
-  if (entry) expect(save!.seq, 'save_cohort came before the entry event').toBeGreaterThan(entry.seq)
+  e(save, 'the agent never proposed save_cohort').toBeTruthy()
+  if (entry && save) e(save.seq, 'save_cohort came before the entry event').toBeGreaterThan(entry.seq)
   const gen = trace.first('generate_analysis')
-  if (gen) expect(gen.seq, 'generate_analysis came before save_cohort').toBeGreaterThan(save!.seq)
+  if (gen && save) e(gen.seq, 'generate_analysis came before save_cohort').toBeGreaterThan(save.seq)
 
   // Grounding, per proposal: every concept id it uses was returned by a lookup
   // earlier in the conversation, not recalled from model memory.
@@ -62,7 +79,7 @@ export function expectHealthyConversation(trace: ChatTrace, expr: CohortExpressi
     const missing = [...used].filter(id => !seen.has(id))
     if (missing.length) ungrounded.push(`${fmt(p)} uses ${missing.join(', ')}`)
   }
-  expect(ungrounded, 'proposals used concept ids no tool had returned').toEqual([])
+  e(ungrounded, 'proposals used concept ids no tool had returned').toEqual([])
 
   // No edit accepted twice: re-proposing an applied change duplicates it.
   const seenEdits = new Map<string, ToolCall>()
@@ -73,7 +90,7 @@ export function expectHealthyConversation(trace: ChatTrace, expr: CohortExpressi
     if (seenEdits.has(key)) dupes.push(`${fmt(p)} repeats #${seenEdits.get(key)!.seq}`)
     else seenEdits.set(key, p)
   }
-  expect(dupes, 'the same edit was accepted twice').toEqual([])
+  e(dupes, 'the same edit was accepted twice').toEqual([])
 
   // The saved cohort contains only concepts the conversation surfaced.
   if (expr) {
@@ -84,7 +101,7 @@ export function expectHealthyConversation(trace: ChatTrace, expr: CohortExpressi
     if (usedSavedSet) {
       test.info().annotations.push({ type: 'note', description: `reused a saved concept set; concepts not shown in the conversation: ${stray.join(', ') || 'none'}` })
     } else {
-      expect(stray, 'the saved cohort contains concepts that never appeared in the conversation').toEqual([])
+      e(stray, 'the saved cohort contains concepts that never appeared in the conversation').toEqual([])
     }
   }
 }
@@ -137,7 +154,9 @@ export interface ReferenceThresholds {
 export async function compareToReference(
   api: WebApi, sourceKey: string, built: { id: number; expr: CohortExpression },
   reference: { id: number; name: string; expr: CohortExpression }, t: ReferenceThresholds,
+  { soft = true }: { soft?: boolean } = {},
 ) {
+  const e = soft ? expect.soft : expect
   const mine = await resolvedIndexConcepts(api, sourceKey, built.expr)
   const ref = await resolvedIndexConcepts(api, sourceKey, reference.expr)
   expect(ref.size, `reference ${reference.id} resolves to no concepts on ${sourceKey}`).toBeGreaterThan(0)
@@ -150,8 +169,8 @@ export async function compareToReference(
     type: 'concepts',
     description: `vs library #${reference.id} "${reference.name}": recall=${recall.toFixed(2)} precision=${precision.toFixed(2)} missing=[${missing}] extra=[${extra}]`,
   })
-  expect(recall, `index concepts miss reference concepts ${missing.join(', ')}`).toBeGreaterThanOrEqual(t.minRecall)
-  expect(precision, `index concepts add concepts the reference does not have: ${extra.join(', ')}`).toBeGreaterThanOrEqual(t.minPrecision)
+  e(recall, `index concepts miss reference concepts ${missing.join(', ')}`).toBeGreaterThanOrEqual(t.minRecall)
+  e(precision, `index concepts add concepts the reference does not have: ${extra.join(', ')}`).toBeGreaterThanOrEqual(t.minPrecision)
 
   // Concepts the reference explicitly excludes must not be in the index event.
   const refExcluded = new Set<number>()
@@ -160,7 +179,7 @@ export async function compareToReference(
     if (items.length) for (const c of await api.resolveConceptSet(sourceKey, { items })) refExcluded.add(c)
   }
   const leaked = [...mine].filter(x => refExcluded.has(x))
-  expect(leaked, 'index event includes concepts the reference phenotype excludes').toEqual([])
+  e(leaked, 'index event includes concepts the reference phenotype excludes').toEqual([])
 
   // Same people? Generate the reference next to the built cohort and compare.
   if (!resultsDbAvailable(sourceKey)) {
@@ -175,7 +194,7 @@ export async function compareToReference(
     const b = cohortSubjects(sourceKey, refId)
     const j = jaccard(a, b)
     test.info().annotations.push({ type: 'persons', description: `built=${a.size} reference=${b.size} jaccard=${j.toFixed(3)}` })
-    expect(j, `built cohort (${a.size} persons) and reference (${b.size} persons) disagree on who qualifies`).toBeGreaterThanOrEqual(t.minPersonJaccard)
+    e(j, `built cohort (${a.size} persons) and reference (${b.size} persons) disagree on who qualifies`).toBeGreaterThanOrEqual(t.minPersonJaccard)
   } finally {
     if (!process.env.PYTHIA_E2E_KEEP) await api.deleteCohort(refId)
   }

@@ -54,13 +54,19 @@ export class PythiaPanel {
     await PythiaPanel.prepare(page)
     await page.goto('/atlas/', { waitUntil: 'domcontentloaded' })
 
+    // The SNOMED licence dialog and the sign-in button arrive in no fixed
+    // order (the licence can pop up seconds after load, over the sign-in
+    // button), so react to whichever is showing until the login form is up.
     const license = page.getByRole('button', { name: /^accept$/i }).first()
-    if (await license.isVisible({ timeout: 5_000 }).catch(() => false)) await license.click()
-
     const signIn = page.getByRole('button', { name: /sign in|log ?in/i }).first()
-    if (await signIn.isVisible({ timeout: 5_000 }).catch(() => false)) await signIn.click()
     const user = page.getByLabel(/username|login/i).first()
-    await user.waitFor({ state: 'visible', timeout: 30_000 })
+    const t0 = Date.now()
+    while (!(await user.isVisible().catch(() => false))) {
+      if (Date.now() - t0 > 60_000) throw new Error('ATLAS login form never appeared')
+      if (await license.isVisible().catch(() => false)) await license.click({ timeout: 5_000 }).catch(() => {})
+      else if (await signIn.isVisible().catch(() => false)) await signIn.click({ timeout: 5_000 }).catch(() => {})
+      await page.waitForTimeout(500)
+    }
     await user.fill(ATLAS_USER)
     const pass = page.getByLabel(/password/i).first()
     await pass.fill(ATLAS_PASS)
