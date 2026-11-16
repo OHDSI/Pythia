@@ -13,7 +13,7 @@ export default defineConfig({
   // One agent build is several minutes of model time.
   timeout: 20 * 60_000,
   expect: { timeout: 15_000 },
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   outputDir: './test-results',
   reporter: [
     ['list'],

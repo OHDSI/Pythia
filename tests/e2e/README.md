@@ -84,5 +84,5 @@ reads the results table through `docker compose exec`, and is skipped with a
 note when that fails), and `ATLAS_USER` / `ATLAS_PASS` (default `admin` /
 `admin`).
 
-There is no automated run: the suite needs a Bedrock API key for the agent, so
-run it by hand when you want to measure how well Pythia builds cohorts.
+CI runs the suite nightly in the `cohort-e2e` job of
+`.github/workflows/agent-evals.yml`.
