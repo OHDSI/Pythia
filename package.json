@@ -20,7 +20,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "vue-tsc --noEmit"
+    "type-check": "vue-tsc --noEmit",
+    "e2e:assets": "npm run build && rm -rf frontend-assets/pythia-plugin && mkdir -p frontend-assets/vendor && cp -R dist frontend-assets/pythia-plugin && cp node_modules/single-spa-vue/dist/system/single-spa-vue.js frontend-assets/vendor/",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@ai-sdk/vue": "^3.0.177",
@@ -31,6 +33,7 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.59.1",
     "@types/dompurify": "^3.0.5",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.4.0",

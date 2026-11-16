@@ -315,6 +315,15 @@ two consecutive runs):
   at its first pending clientOnly proposal, and criteria proposals only
   follow once a user accepts the entry event.
 
+### End-to-end cohort creation
+
+Every eval here stops at the first pending proposal, so none of them checks that a cohort is
+actually created. `tests/e2e/` (repo root) does that: it drives Pythia in the real ATLAS UI with
+auto-approve on and records the conversation. It checks the tool trace (grounding, order, no rejected or
+repeated proposals) and the saved cohort's concept ids. Where the cohort has an OHDSI Phenotype Library
+counterpart, it also checks the patients against that phenotype on Eunomia.
+Run it with `npm run test:e2e` from the repo root. See `tests/e2e/README.md`.
+
 ### CI
 
 `.github/workflows/agent-evals.yml` runs the suite nightly and on manual
