@@ -38,3 +38,7 @@ figures/*.gif
 # written but are not part of the product.
 *.docx
 /OHDSI-abstract-*.md
+
+# Playwright e2e output
+/tests/e2e/test-results/
+/tests/e2e/playwright-report/

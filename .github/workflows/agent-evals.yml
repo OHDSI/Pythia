@@ -96,3 +96,80 @@ jobs:
           path: |
             agent/plugin/.eve/
           retention-days: 14
+
+  # End-to-end cohort creation through the real ATLAS UI: Pythia's proposals are
+  # applied by ATLAS (auto-approve), saved to WebAPI and generated on Eunomia,
+  # and the assertions read what WebAPI persisted. The eve evals above cannot
+  # get there: they stop at the first client-side proposal.
+  cohort-e2e:
+    runs-on: ubuntu-latest
+    # Seven agent sessions at several minutes of model time each.
+    timeout-minutes: 150
+    env:
+      AWS_REGION: us-east-1
+      BAO_AGENT_MODEL: us.anthropic.claude-sonnet-4-6
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secret is configured
+        id: gate
+        env:
+          BEDROCK_TOKEN: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+        run: |
+          if [ -z "$BEDROCK_TOKEN" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::AWS_BEARER_TOKEN_BEDROCK secret not set — skipping cohort e2e"
+          fi
+
+      - name: Write .env for compose
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          BEDROCK_TOKEN: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+        run: |
+          {
+            echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN"
+            echo "AWS_REGION=$AWS_REGION"
+            echo "BAO_AGENT_MODEL=$BAO_AGENT_MODEL"
+          } > .env
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: 24
+
+      - name: Build the Pythia plugin into frontend-assets/
+        if: steps.gate.outputs.skip != 'true'
+        run: npm ci && npm run e2e:assets
+
+      - name: Boot the stack
+        if: steps.gate.outputs.skip != 'true'
+        run: docker compose up -d --wait
+
+      - name: Wait for WebAPI
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          for _ in $(seq 1 60); do
+            curl -sf --max-time 5 http://localhost:8080/WebAPI/info >/dev/null && exit 0
+            sleep 5
+          done
+          echo "WebAPI never became ready" >&2
+          docker compose logs --tail 100 trex
+          exit 1
+
+      - name: Install Chromium
+        if: steps.gate.outputs.skip != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run cohort e2e
+        if: steps.gate.outputs.skip != 'true'
+        run: npm run test:e2e
+
+      - name: Upload e2e artifacts
+        if: always() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cohort-e2e-artifacts
+          path: |
+            tests/e2e/test-results/
+            tests/e2e/playwright-report/
+          retention-days: 14
