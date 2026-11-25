@@ -53,14 +53,40 @@
   [index]
   (into {} (map (juxt :id identity)) index))
 
+;; Every query word must appear in a phenotype, so a word that describes the
+;; request rather than the condition ("type 2 diabetes cohort") used to empty the
+;; result. Those words are dropped. Abbreviations ("T2DM") are the model's job:
+;; the tool asks for the full condition name and, when the library returns
+;; nothing, to retry with the full name or a synonym.
+
+;; "type" is not here: it carries the meaning in "type 2".
+(def ^:private filler-words
+  #{"cohort" "cohorts" "phenotype" "phenotypes" "definition" "definitions"
+    "patient" "patients" "people" "persons" "population" "subjects"
+    "with" "of" "the" "a" "an" "for" "in" "who" "have" "having" "and"})
+
+(defn query-terms
+  "The words of `query` as the library is matched against: lower case, filler
+   words dropped."
+  [query]
+  (->> (str/split (str/lower-case (str query)) #"[\s,;/()]+")
+       (remove str/blank?)
+       (remove filler-words)
+       distinct
+       vec))
+
 (defn- match-all-terms?
-  "Case-insensitive: every word in `query` appears somewhere in `text`. (JVM port.)"
-  [query text]
-  (let [t (str/lower-case (or text ""))
-        terms (->> (str/split (str/lower-case (or query "")) #"\s+")
-                   (remove str/blank?))]
+  "Case-insensitive: every term (see `query-terms`) appears somewhere in `text`."
+  [terms text]
+  (let [t (str/lower-case (or text ""))]
     (and (seq terms)
          (every? #(str/includes? t %) terms))))
+
+(defn- matched-term-count
+  "How many of `terms` appear in any of `texts`."
+  [terms texts]
+  (let [t (str/lower-case (str/join " " (remove nil? texts)))]
+    (count (filter #(str/includes? t %) terms))))
 
 (defn- status-rank
   "Sort accepted/peer-reviewed cohorts ahead of pending/withdrawn. (JVM port.)"
@@ -113,15 +139,38 @@
    rank-ohdsi-library so aggregate views (phenotype_patterns) and per-hit views
    (search_phenotypes) select the same definitions."
   [index query n]
-  (->> index
-       (filter (fn [c]
-                 (or (match-all-terms? query (:name c))
-                     (match-all-terms? query (:name-long c))
-                     (match-all-terms? query (:description c))
-                     (match-all-terms? query (:hashtag c)))))
-       (sort-by (juxt #(status-rank (:status %)) :id))
-       (take n)
-       vec))
+  (let [terms (query-terms query)
+        full (filter (fn [c]
+                       (or (match-all-terms? terms (:name c))
+                           (match-all-terms? terms (:name-long c))
+                           (match-all-terms? terms (:description c))
+                           (match-all-terms? terms (:hashtag c))))
+                     index)]
+    (if (seq full)
+      ;; A phenotype named after the condition ranks ahead of one that only
+      ;; mentions it in its description.
+      (->> full
+           (sort-by (juxt #(if (or (match-all-terms? terms (:name %))
+                                   (match-all-terms? terms (:name-long %)))
+                             0 1)
+                          ;; then the shortest name: "Chronic kidney disease" over
+                          ;; "AKI, in persons with chronic kidney disease"
+                          #(count (str (:name %)))
+                          #(status-rank (:status %))
+                          :id))
+           (take n)
+           vec)
+      ;; Nothing matches every term: fall back to the entries matching the most
+      ;; terms (at least two thirds of them), so a stray word cannot empty the result.
+      (let [need (max 1 (js/Math.ceil (* (/ 2 3) (count terms))))]
+        (->> index
+             (keep (fn [c]
+                     (let [k (matched-term-count terms [(:name c) (:name-long c) (:description c) (:hashtag c)])]
+                       (when (>= k need) [k c]))))
+             (sort-by (fn [[k c]] [(- k) (status-rank (:status c)) (:id c)]))
+             (map second)
+             (take n)
+             vec)))))
 
 (defn rank-ohdsi-library
   "Filter + rank the bundled index for `query`, top `n`. Mirrors the JVM

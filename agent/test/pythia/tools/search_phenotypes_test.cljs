@@ -86,3 +86,29 @@
                    (restore)
                    (restore-idx)
                    (done)))))))
+
+(deftest library-hits-carry-a-next-step
+  (testing "matching library phenotypes come with an instruction to offer them"
+    (let [s (sp/library-next-step [{:id 503 :name "[P][R] Type 2 diabetes mellitus"}
+                                   {:id 40 :name "[P] Diabetes Mellitus Type 2 or history of diabetes"}])]
+      (is (re-find #"#503 \[P\]\[R\] Type 2 diabetes mellitus" s))
+      (is (re-find #"#40 " s))
+      (is (re-find #"ask_user" s))
+      (is (re-find #"get_reference_phenotype" s))))
+  (testing "no library hits, no instruction"
+    (is (nil? (sp/library-next-step [])))))
+
+(deftest run-attaches-the-right-next-step
+  (async done
+    (let [restore-idx (with-fake-index!)
+          restore (mock-get-json! (fn [_ _] {:status 404 :body nil}))]
+      (-> ((:run sp/tool) {:query "T2DM"} {})
+          (.then (fn [out]
+                   (is (= [10] (map :id (filter #(= "ohdsi-library" (:source %)) (:results out)))))
+                   (is (re-find #"#10 Type 2 diabetes mellitus" (:next-step out)))
+                   ((:run sp/tool) {:query "leukemia"} {})))
+          (.then (fn [out]
+                   ;; no library hit: ask for a retry with the full name instead
+                   (is (= sp/library-retry-note (:next-step out)))
+                   (is (re-find #"full condition name" (:next-step out)))))
+          (.finally (fn [] (restore) (restore-idx) (done)))))))

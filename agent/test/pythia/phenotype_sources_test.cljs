@@ -45,6 +45,45 @@
 (deftest ohdsi-library-no-match-empty
   (is (= [] (ps/rank-ohdsi-library fake-index "leukemia" 5))))
 
+;; Named the way the real library names conditions: in full, no abbreviations.
+(def ^:private library-like-index
+  [{:id 503 :name "[P][R] Type 2 diabetes mellitus" :status "Pending peer review"
+    :description "first occurrence of type 2 diabetes mellitus" :hashtag "" :concept-sets []}
+   {:id 40 :name "[P] Diabetes Mellitus Type 2 or history of diabetes" :status "Pending peer review"
+    :description "Earliest of any Type 2 Diabetes Mellitus or History of Diabetes" :hashtag "" :concept-sets []}
+   {:id 77 :name "Atrial fibrillation" :status "Accepted"
+    :description "first atrial fibrillation diagnosis" :hashtag "" :concept-sets []}
+   {:id 78 :name "Chronic kidney disease" :status "Accepted"
+    :description "ckd stage 3 or worse" :hashtag "" :concept-sets []}])
+
+(defn- ids [query] (set (map :id (ps/rank-ohdsi-library library-like-index query 5))))
+
+(deftest query-terms-drops-filler-words
+  (is (= ["type" "2" "diabetes"] (ps/query-terms "Type 2 Diabetes cohort")))
+  (is (= ["atrial" "fibrillation"] (ps/query-terms "patients with atrial fibrillation")))
+  ;; abbreviations are left to the model (the tool asks for the full name)
+  (is (= ["t2dm"] (ps/query-terms "T2DM"))))
+
+(deftest ohdsi-library-finds-phrasings-of-the-full-name
+  (doseq [q ["type 2 diabetes" "Type 2 Diabetes cohort" "diabetes mellitus type 2"
+             "type 2 diabetes phenotype" "patients with type 2 diabetes"]]
+    (is (= #{503 40} (ids q)) q)))
+
+(deftest ohdsi-library-ranks-named-phenotypes-first
+  (let [idx (conj library-like-index
+                  {:id 5 :name "Acute kidney injury" :status "Accepted"
+                   :description "AKI in persons with chronic kidney disease" :hashtag "" :concept-sets []})]
+    ;; the AKI phenotype has the lower id and the same status, but the other one is named after the condition
+    (is (= [78 5] (map :id (ps/rank-ohdsi-library idx "chronic kidney disease" 5))))
+    ;; among name matches the shortest name wins
+    (is (= [503 40] (map :id (ps/rank-ohdsi-library library-like-index "type 2 diabetes" 5))))))
+
+(deftest ohdsi-library-falls-back-to-best-partial-match
+  ;; "obese" matches nothing, but the other terms still find the T2DM phenotypes
+  (is (= #{503 40} (ids "obese type 2 diabetes mellitus")))
+  ;; too few matching terms: still nothing rather than noise
+  (is (= #{} (ids "leukemia lymphoma diabetes"))))
+
 ;; --- Task 2: HDR UK ---
 
 (defn- mock-get-json! [route-fn]
