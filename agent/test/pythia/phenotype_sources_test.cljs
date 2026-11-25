@@ -58,31 +58,25 @@
 
 (defn- ids [query] (set (map :id (ps/rank-ohdsi-library library-like-index query 5))))
 
-(deftest query-terms-normalizes
-  (is (= ["type" "2" "diabetes"] (ps/query-terms "T2DM")))
-  (is (= ["type" "2" "diabetes"] (ps/query-terms "type II diabetes")))
+(deftest query-terms-drops-filler-words
   (is (= ["type" "2" "diabetes"] (ps/query-terms "Type 2 Diabetes cohort")))
-  (is (= ["atrial" "fibrillation"] (ps/query-terms "patients with AF")))
-  ;; a roman numeral only means a number after "type"
-  (is (= ["stage" "i" "hypertension"] (ps/query-terms "stage I hypertension"))))
+  (is (= ["atrial" "fibrillation"] (ps/query-terms "patients with atrial fibrillation")))
+  ;; abbreviations are left to the model (the tool asks for the full name)
+  (is (= ["t2dm"] (ps/query-terms "T2DM"))))
 
-(deftest ohdsi-library-finds-abbreviations-and-phrasings
-  (testing "every common phrasing of type 2 diabetes finds both T2DM phenotypes"
-    (doseq [q ["type 2 diabetes" "T2DM" "t2d" "type II diabetes" "Type 2 Diabetes cohort"
-               "diabetes mellitus type 2" "T2DM phenotype"]]
-      (is (= #{503 40} (ids q)) q)))
-  (testing "other abbreviations expand too"
-    (is (= #{77} (ids "AF")))
-    (is (= #{78} (ids "CKD patients")))))
+(deftest ohdsi-library-finds-phrasings-of-the-full-name
+  (doseq [q ["type 2 diabetes" "Type 2 Diabetes cohort" "diabetes mellitus type 2"
+             "type 2 diabetes phenotype" "patients with type 2 diabetes"]]
+    (is (= #{503 40} (ids q)) q)))
 
 (deftest ohdsi-library-ranks-named-phenotypes-first
   (let [idx (conj library-like-index
                   {:id 5 :name "Acute kidney injury" :status "Accepted"
                    :description "AKI in persons with chronic kidney disease" :hashtag "" :concept-sets []})]
-    ;; the AKI phenotype has the lower id and the same status, but CKD is in the other one's name
-    (is (= [78 5] (map :id (ps/rank-ohdsi-library idx "CKD" 5))))
+    ;; the AKI phenotype has the lower id and the same status, but the other one is named after the condition
+    (is (= [78 5] (map :id (ps/rank-ohdsi-library idx "chronic kidney disease" 5))))
     ;; among name matches the shortest name wins
-    (is (= [503 40] (map :id (ps/rank-ohdsi-library library-like-index "T2DM" 5))))))
+    (is (= [503 40] (map :id (ps/rank-ohdsi-library library-like-index "type 2 diabetes" 5))))))
 
 (deftest ohdsi-library-falls-back-to-best-partial-match
   ;; "obese" matches nothing, but the other terms still find the T2DM phenotypes

@@ -98,7 +98,7 @@
   (testing "no library hits, no instruction"
     (is (nil? (sp/library-next-step [])))))
 
-(deftest run-attaches-next-step-only-for-library-hits
+(deftest run-attaches-the-right-next-step
   (async done
     (let [restore-idx (with-fake-index!)
           restore (mock-get-json! (fn [_ _] {:status 404 :body nil}))]
@@ -108,5 +108,7 @@
                    (is (re-find #"#10 Type 2 diabetes mellitus" (:next-step out)))
                    ((:run sp/tool) {:query "leukemia"} {})))
           (.then (fn [out]
-                   (is (not (contains? out :next-step)))))
+                   ;; no library hit: ask for a retry with the full name instead
+                   (is (= sp/library-retry-note (:next-step out)))
+                   (is (re-find #"full condition name" (:next-step out)))))
           (.finally (fn [] (restore) (restore-idx) (done)))))))

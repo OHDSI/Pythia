@@ -53,60 +53,27 @@
   [index]
   (into {} (map (juxt :id identity)) index))
 
-;; The library names conditions in full ("Type 2 diabetes mellitus"), while the
-;; model often searches with an abbreviation ("T2DM"), a roman numeral ("type II")
-;; or extra words ("type 2 diabetes cohort"). Every query word must match, so any
-;; of those used to return nothing, and the model concluded the library had no
-;; such phenotype. Queries are normalized before matching.
+;; Every query word must appear in a phenotype, so a word that describes the
+;; request rather than the condition ("type 2 diabetes cohort") used to empty the
+;; result. Those words are dropped. Abbreviations ("T2DM") are the model's job:
+;; the tool asks for the full condition name and, when the library returns
+;; nothing, to retry with the full name or a synonym.
 
-(def ^:private abbreviations
-  {"t2dm" "type 2 diabetes" "t2d" "type 2 diabetes" "dm2" "type 2 diabetes"
-   "t1dm" "type 1 diabetes" "t1d" "type 1 diabetes" "dm1" "type 1 diabetes"
-   "ckd" "chronic kidney disease" "esrd" "end stage renal disease"
-   "aki" "acute kidney injury"
-   "copd" "chronic obstructive pulmonary disease"
-   "af" "atrial fibrillation" "afib" "atrial fibrillation"
-   "mi" "myocardial infarction" "ami" "acute myocardial infarction"
-   "hf" "heart failure" "chf" "heart failure"
-   "htn" "hypertension" "cad" "coronary artery disease"
-   "pad" "peripheral artery disease" "tia" "transient ischemic attack"
-   "dvt" "deep vein thrombosis" "pe" "pulmonary embolism"
-   "vte" "venous thromboembolism"
-   "ra" "rheumatoid arthritis" "oa" "osteoarthritis"
-   "sle" "systemic lupus erythematosus" "ms" "multiple sclerosis"
-   "ibd" "inflammatory bowel disease" "uc" "ulcerative colitis"
-   "gerd" "gastroesophageal reflux disease" "uti" "urinary tract infection"
-   "mdd" "major depressive disorder" "osa" "obstructive sleep apnea"
-   "gib" "gastrointestinal bleeding"})
-
-(def ^:private roman-numerals {"i" "1" "ii" "2" "iii" "3" "iv" "4"})
-
-;; Words that describe the request, not the condition. "type" is not here: it
-;; carries the meaning in "type 2".
+;; "type" is not here: it carries the meaning in "type 2".
 (def ^:private filler-words
   #{"cohort" "cohorts" "phenotype" "phenotypes" "definition" "definitions"
     "patient" "patients" "people" "persons" "population" "subjects"
     "with" "of" "the" "a" "an" "for" "in" "who" "have" "having" "and"})
 
 (defn query-terms
-  "The words of `query` as the library is matched against: lower case,
-   abbreviations expanded, \"type II\" read as \"type 2\", filler words dropped."
+  "The words of `query` as the library is matched against: lower case, filler
+   words dropped."
   [query]
-  (let [words (->> (str/split (str/lower-case (str query)) #"[\s,;/()]+")
-                   (remove str/blank?)
-                   vec)]
-    (->> words
-         (map-indexed (fn [i w]
-                        (cond
-                          (contains? abbreviations w) (abbreviations w)
-                          (and (contains? roman-numerals w) (pos? i)
-                               (= "type" (nth words (dec i))))
-                          (roman-numerals w)
-                          :else w)))
-         (mapcat #(str/split % #"\s+"))
-         (remove filler-words)
-         distinct
-         vec)))
+  (->> (str/split (str/lower-case (str query)) #"[\s,;/()]+")
+       (remove str/blank?)
+       (remove filler-words)
+       distinct
+       vec))
 
 (defn- match-all-terms?
   "Case-insensitive: every term (see `query-terms`) appears somewhere in `text`."

@@ -15,7 +15,7 @@
 
 (def schema
   {:type "object"
-   :properties {:query {:type "string" :description "Clinical condition or phenotype to search for"}}
+   :properties {:query {:type "string" :description "The condition's full clinical name as the library would name it, e.g. \"type 2 diabetes mellitus\", not \"T2DM\""}}
    :required ["query"]})
 
 (defn library-next-step
@@ -35,6 +35,13 @@
          " entry, inclusion rules and exit; say explicitly which parts you could not mirror."
          " Skip the question only if the user already asked for a custom definition or named the phenotype to use.")))
 
+(def library-retry-note
+  "Returned when the OHDSI Phenotype Library has no match. The library names
+   conditions in full, so an abbreviation or a narrow wording finds nothing."
+  (str "No OHDSI Phenotype Library match for this query. The library names conditions in full"
+       " (\"type 2 diabetes mellitus\", not \"T2DM\"): search again with the full condition name or a"
+       " common synonym before concluding the library has no phenotype for it."))
+
 (defn run
   "Tool entrypoint. Args: {:query \"clinical condition\"}."
   [args _ctx]
@@ -49,12 +56,12 @@
           (.then (fn [results]
                    (let [merged (ps/merge-rank (apply concat (array-seq results)) overall-limit)
                          next-step (library-next-step (filter #(= "ohdsi-library" (:source %)) merged))]
-                     (cond-> {:results merged :sources sources}
-                       next-step (assoc :next-step next-step)))))
+                     (assoc {:results merged :sources sources}
+                            :next-step (or next-step library-retry-note)))))
           (.catch (fn [_] {:results [] :sources sources}))))))
 
 (def tool
   {:name "search_phenotypes"
-   :description "Search the OHDSI Phenotype Library, the HDR UK Phenotype Library, PheKB, and the OHDSI Forums for validated phenotype definitions. Call after search_existing_cohorts when no existing cohort matches. OHDSI Phenotype Library hits (`:source \"ohdsi-library\"`, `:kind :omop-cohort`) are directly importable OMOP cohorts and include a `:circe-summary` (entry domains, # primary criteria, # inclusion rules, concept-set list, exit strategy). When the library has a matching phenotype, tell the user about it and offer to rebuild it before designing your own (the result's `:next-step` says how). HDR UK hits (`:kind :clinical-codelist`) are UK EHR codelists for reference. When a hit is the right template and you want the full Circe JSON (or HDR UK clinical codes), follow up with `get_reference_phenotype`."
+   :description "Search the OHDSI Phenotype Library, the HDR UK Phenotype Library, PheKB, and the OHDSI Forums for validated phenotype definitions. Search with the condition's full clinical name, not an abbreviation. Call after search_existing_cohorts when no existing cohort matches. OHDSI Phenotype Library hits (`:source \"ohdsi-library\"`, `:kind :omop-cohort`) are directly importable OMOP cohorts and include a `:circe-summary` (entry domains, # primary criteria, # inclusion rules, concept-set list, exit strategy). When the library has a matching phenotype, tell the user about it and offer to rebuild it before designing your own (the result's `:next-step` says how). HDR UK hits (`:kind :clinical-codelist`) are UK EHR codelists for reference. When a hit is the right template and you want the full Circe JSON (or HDR UK clinical codes), follow up with `get_reference_phenotype`."
    :schema schema
    :run run})
